@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Card from '../components/Card'
+import CommitmentButton from '../components/CommitmentButton'
 import { Zap, AlertCircle, TrendingDown } from 'lucide-react'
 import { useGridData } from '../context/GridDataContext'
 import { THEME } from '../theme'
@@ -187,6 +188,7 @@ export default function WhatIf() {
           <div style={whatIfStyles.comparisonGrid}>
             <Card>
               <h4 style={{ fontWeight: '600', marginBottom: THEME.spacing.md, fontSize: '14px', color: THEME.colors.text.secondary }}>Original Loads</h4>
+              {/* Status display - Commented out (stress metrics under review)
               <div style={{ 
                 fontSize: '28px', 
                 fontWeight: '700', 
@@ -197,14 +199,15 @@ export default function WhatIf() {
               }}>
                 {results.original.status}
               </div>
+              */}
               <div style={{ fontSize: '12px', color: THEME.colors.text.secondary, lineHeight: '1.6' }}>
                 <div style={{ marginBottom: THEME.spacing.sm }}>Peak Load: <strong>{results.original.max_load?.toLocaleString()} KW</strong></div>
-                <div>Grid Stress: <strong>{results.original.stress_percentage?.toFixed(1)}%</strong></div>
               </div>
             </Card>
 
             <Card>
               <h4 style={{ fontWeight: '600', marginBottom: THEME.spacing.md, fontSize: '14px', color: THEME.colors.text.secondary }}>After Load Shift ({shiftPercentage}%)</h4>
+              {/* Status display - Commented out (stress metrics under review)
               <div style={{ 
                 fontSize: '28px', 
                 fontWeight: '700', 
@@ -215,9 +218,9 @@ export default function WhatIf() {
               }}>
                 {results.with_shift.status}
               </div>
+              */}
               <div style={{ fontSize: '12px', color: THEME.colors.text.secondary, lineHeight: '1.6' }}>
                 <div style={{ marginBottom: THEME.spacing.sm }}>Peak Load: <strong>{results.with_shift.max_load?.toLocaleString()} KW</strong></div>
-                <div>Grid Stress: <strong>{results.with_shift.stress_percentage?.toFixed(1)}%</strong></div>
               </div>
             </Card>
           </div>
@@ -234,12 +237,16 @@ export default function WhatIf() {
                   {results.load_shifted_kw?.toLocaleString()} KW
                 </div>
               </div>
+              
+              {/* Stress Reduction - Commented out (stress metrics under review)
               <div>
                 <div style={{ color: THEME.colors.text.secondary, marginBottom: THEME.spacing.sm }}>Stress Reduction</div>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: THEME.colors.success }}>
-                  {(results.original?.stress_percentage - results.with_shift?.stress_percentage)?.toFixed(1)}pp
+                  {(results.original?.combined_stress - results.with_shift?.combined_stress)?.toFixed(1)}pp
                 </div>
               </div>
+              */}
+              
               <div>
                 <div style={{ color: THEME.colors.text.secondary, marginBottom: THEME.spacing.sm }}>Peak Reduction</div>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: THEME.colors.success }}>
@@ -250,23 +257,9 @@ export default function WhatIf() {
           </Card>
 
           <Card style={whatIfStyles.fullWidth}>
-            <h3 style={{ fontWeight: '600', marginBottom: THEME.spacing.lg }}>Raw Scenario Data</h3>
-            <div style={{
-              background: THEME.colors.bg.tertiary,
-              border: `1px solid ${THEME.colors.border.primary}`,
-              borderRadius: '8px',
-              padding: THEME.spacing.lg,
-              fontFamily: 'monospace',
-              fontSize: '12px',
-              color: THEME.colors.accent.primary,
-              overflow: 'auto',
-              maxHeight: '400px',
-            }}>
-              <pre style={{ margin: 0 }}>
-                {JSON.stringify(results, null, 2)}
-              </pre>
-            </div>
+            <CommitmentButton scenarioData={results} />
           </Card>
+
         </>
       )}
     </div>

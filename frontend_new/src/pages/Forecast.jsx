@@ -1,6 +1,7 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
 import Card from '../components/Card'
+import AnomalyDetection from '../components/AnomalyDetection'
 import { TrendingUp, AlertCircle, Calendar } from 'lucide-react'
 import { useGridData } from '../context/GridDataContext'
 import { THEME } from '../theme'
@@ -113,6 +114,7 @@ export default function Forecast() {
             </div>
           </Card>
 
+          {/* Grid Stress - Commented out (under review)
           <Card>
             <h3 style={{ fontWeight: '600', marginBottom: THEME.spacing.md }}>Grid Stress</h3>
             <div style={{ 
@@ -129,6 +131,7 @@ export default function Forecast() {
               Grid capacity stress level
             </div>
           </Card>
+          */}
         </>
       )}
 
@@ -142,8 +145,8 @@ export default function Forecast() {
           
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))',
-            gap: THEME.spacing.md,
+            gridTemplateColumns: 'repeat(10, 1fr)',
+            gap: '12px',
             marginBottom: THEME.spacing.lg,
           }}>
             {forecastData.hourly_summary.map((hourData, idx) => (
@@ -153,17 +156,27 @@ export default function Forecast() {
                   background: THEME.colors.bg.tertiary,
                   border: `1px solid ${THEME.colors.border.primary}`,
                   borderRadius: '8px',
-                  padding: THEME.spacing.md,
+                  padding: `${THEME.spacing.md} ${THEME.spacing.sm}`,
                   textAlign: 'center',
+                  transition: THEME.transitions.smooth,
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = THEME.colors.bg.surface
+                  e.currentTarget.style.borderColor = THEME.colors.accent.primary
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = THEME.colors.bg.tertiary
+                  e.currentTarget.style.borderColor = THEME.colors.border.primary
                 }}
               >
-                <div style={{ fontSize: '11px', color: THEME.colors.text.secondary, marginBottom: '4px' }}>
+                <div style={{ fontSize: '12px', color: THEME.colors.text.secondary, marginBottom: '8px', fontWeight: '500', letterSpacing: '0.5px' }}>
                   Hour {idx}
                 </div>
-                <div style={{ fontSize: '18px', fontWeight: '700', color: THEME.colors.accent.primary }}>
-                  {hourData.toLocaleString()}
+                <div style={{ fontSize: '20px', fontWeight: '700', color: THEME.colors.accent.primary, marginBottom: '6px' }}>
+                  {(hourData / 1000).toFixed(1)}
                 </div>
-                <div style={{ fontSize: '10px', color: THEME.colors.text.secondary, marginTop: '4px' }}>
+                <div style={{ fontSize: '11px', color: THEME.colors.text.secondary, fontWeight: '500' }}>
                   KW
                 </div>
               </div>
@@ -183,32 +196,23 @@ export default function Forecast() {
         </Card>
       )}
 
-      {/* Raw Data */}
-      <Card style={forecastStyles.fullWidth}>
-        <h3 style={{ fontWeight: '600', marginBottom: THEME.spacing.lg }}>Raw Forecast Data (JSON)</h3>
-        <div style={{
-          background: THEME.colors.bg.tertiary,
-          border: `1px solid ${THEME.colors.border.primary}`,
-          borderRadius: '8px',
-          padding: THEME.spacing.lg,
-          fontFamily: 'monospace',
-          fontSize: '12px',
-          color: THEME.colors.accent.primary,
-          overflow: 'auto',
-          maxHeight: '400px',
-        }}>
-          <pre style={{ margin: 0 }}>
-            {JSON.stringify(forecastData, null, 2)}
-          </pre>
+      {/* Anomaly Detection */}
+      {forecastData && (
+        <div style={forecastStyles.fullWidth}>
+          <AnomalyDetection forecastData={forecastData} />
         </div>
-      </Card>
+      )}
+
+
     </div>
   )
 }
 
+/* Grid Stress Color - Commented out (stress section under review)
 function getStressColor(status) {
   if (status?.includes('CRITICAL')) return THEME.colors.error
   if (status?.includes('HIGH')) return THEME.colors.warning
   if (status?.includes('MODERATE')) return THEME.colors.warning
   return THEME.colors.success
 }
+*/

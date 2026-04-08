@@ -101,7 +101,7 @@ export default function Analysis() {
         </div>
       </Card>
 
-      <Card>
+      {/* <Card>
         <h3 style={{ fontWeight: '600', marginBottom: THEME.spacing.md }}>Grid Status</h3>
         <div style={{ 
           fontSize: '20px', 
@@ -116,7 +116,7 @@ export default function Analysis() {
         <div style={{ fontSize: '12px', color: THEME.colors.text.secondary }}>
           System operational status
         </div>
-      </Card>
+      </Card> */}
 
       <Card>
         <h3 style={{ fontWeight: '600', marginBottom: THEME.spacing.md, display: 'flex', alignItems: 'center', gap: THEME.spacing.md }}>
@@ -169,25 +169,6 @@ export default function Analysis() {
         </div>
       </Card>
 
-      {/* Raw Data */}
-      <Card style={analysisStyles.fullWidth}>
-        <h3 style={{ fontWeight: '600', marginBottom: THEME.spacing.lg }}>Raw Analysis Data</h3>
-        <div style={{
-          background: THEME.colors.bg.tertiary,
-          border: `1px solid ${THEME.colors.border.primary}`,
-          borderRadius: '8px',
-          padding: THEME.spacing.lg,
-          fontFamily: 'monospace',
-          fontSize: '12px',
-          color: THEME.colors.accent.primary,
-          overflow: 'auto',
-          maxHeight: '400px',
-        }}>
-          <pre style={{ margin: 0 }}>
-            {JSON.stringify(analysisData, null, 2)}
-          </pre>
-        </div>
-      </Card>
     </div>
   )
 }

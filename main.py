@@ -1,26 +1,26 @@
 from fastapi import FastAPI, File, UploadFile
-from fastapi.middleware.cors import CORSMiddleware # <--- 1. Import this
+from fastapi.middleware.cors import CORSMiddleware 
 from fastapi.staticfiles import StaticFiles
 import joblib
 import pandas as pd
 import numpy as np
 import shutil
 import os
+from datetime import datetime
 from app.data_loader import load_and_clean_data
-from app.forecasting import recursive_forecast_24h, apply_whatif_scenario, calculate_grid_stress
+from app.forecasting import recursive_forecast_24h, apply_whatif_scenario, calculate_grid_stress, detect_anomalies, calculate_model_confidence
+from app.kpi_tracker import record_commitment, get_kpi_metrics, get_commitment_history
 
 app = FastAPI()
 
-# 2. Add this block IMMEDIATELY after 'app = FastAPI()'
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # This tells the browser to allow any website to access the API
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 3. Load the model (Your Week 3/4 code)
 try:
     model = joblib.load('models/electricity_model.pkl')
     feature_names = joblib.load('models/feature_names.pkl')
@@ -28,12 +28,10 @@ try:
 except:
     MODEL_READY = False
 
-# Store latest data for Week 6 & 7 features
 latest_df = None
 latest_input_features = None
 latest_threshold = None
 
-# ... keep the rest of your @app.post and @app.get routes below ...
 
 @app.get("/")
 def home():
@@ -44,17 +42,15 @@ def home():
 async def predict_and_advise(file: UploadFile = File(...)):
     global latest_df, latest_input_features, latest_threshold
     
-    # Save the uploaded file to data folder first
     file_path = os.path.join("data", file.filename)
     try:
-        # Read and save the uploaded file
         contents = await file.read()
         with open(file_path, "wb") as buffer:
             buffer.write(contents)
     except Exception as e:
         return {"error": f"Failed to upload file: {str(e)}"}
     
-    # 1. Clean the incoming data (Week 2 logic)
+    # 1. Clean the incoming data 
     try:
         df, threshold = load_and_clean_data(file.filename)
     except Exception as e:
@@ -64,23 +60,34 @@ async def predict_and_advise(file: UploadFile = File(...)):
     latest_threshold = threshold
     
     # 2. Prepare features for prediction
-    # We take the last row of data to predict the next hour
     latest_data = df.iloc[-1]
+    datetime_val = pd.to_datetime(latest_data['Datetime'])
+    hour = datetime_val.hour
+    
+    # Compute all required features (matching model_trainer.py)
     input_features = pd.DataFrame([{
         'Temperature': latest_data['Temperature'],
         'Humidity': latest_data['Humidity'],
-        'hour': pd.to_datetime(latest_data['Datetime']).hour,
-        'day_of_week': pd.to_datetime(latest_data['Datetime']).dayofweek,
-        'residential_lag': latest_data['residential_load'],
-        'datacenter_lag': latest_data['datacenter_load']
+        'hour': hour,
+        'day_of_week': datetime_val.dayofweek,
+        'month': datetime_val.month,
+        'day_of_month': datetime_val.day,
+        'hour_sin': np.sin(2 * np.pi * hour / 24),
+        'hour_cos': np.cos(2 * np.pi * hour / 24),
+        'residential_lag_1h': df.iloc[-6]['residential_load'] if len(df) >= 6 else latest_data['residential_load'],
+        'residential_lag_2h': df.iloc[-12]['residential_load'] if len(df) >= 12 else latest_data['residential_load'],
+        'datacenter_lag_1h': df.iloc[-6]['datacenter_load'] if len(df) >= 6 else latest_data['datacenter_load'],
+        'datacenter_lag_2h': df.iloc[-12]['datacenter_load'] if len(df) >= 12 else latest_data['datacenter_load'],
+        'industrial_lag_1h': df.iloc[-6]['industrial_load'] if len(df) >= 6 else latest_data['industrial_load'],
+        'temp_rolling_3h': df['Temperature'].tail(18).mean(),
+        'humidity_rolling_3h': df['Humidity'].tail(18).mean()
     }])
     latest_input_features = input_features
 
     # 3. THE PREDICTION
     prediction = model.predict(input_features)[0]
 
-    # 4. ADVISORY LOGIC (Week 4 Focus)
-    # We look at 'Feature Importance' to see WHY the AI made this choice
+    # 4. ADVISORY LOGIC 
     importances = model.feature_importances_
     top_feature = feature_names[np.argmax(importances)]
 
@@ -95,7 +102,7 @@ async def predict_and_advise(file: UploadFile = File(...)):
             advisory = "ALERT: Predicted peak due to historical trend. Shift non-critical backups to 2 AM."
 
     # 5. SUSTAINABILITY SCORECARD
-    co2_saved = round((prediction * 0.0005), 2) # Mock calculation: 0.5kg CO2 per KW shifted
+    co2_saved = round((prediction * 0.0005), 2) 
 
     return {
         "prediction_next_hour_kw": round(prediction, 2),
@@ -106,14 +113,18 @@ async def predict_and_advise(file: UploadFile = File(...)):
     }
 
 
-# ============ WEEK 6: WHAT-IF SIMULATOR ============
-
 @app.get("/what-if-scenario")
 def what_if_scenario(shift_percentage: float = 0):
     """
     Prescriptive Optimization: Simulate shifting Data Center load to off-peak hours.
     
-    Formula: New_Load = Predicted_Load - (DataCenter_Load × Shift%)
+    The model now predicts TOTAL grid load (residential + datacenter + industrial).
+    When shifting DC load, we reduce total grid load by that percentage of DC's current contribution.
+    
+    Formula: 
+    - Baseline_Load = Total predicted load (all three zones)
+    - Load_to_Shift = DataCenter_Load × (Shift% / 100)
+    - New_Load = Baseline_Load - Load_to_Shift
     
     Args:
         shift_percentage: Percentage of data center load to shift (0-100)
@@ -125,13 +136,13 @@ def what_if_scenario(shift_percentage: float = 0):
     if latest_input_features is None or latest_df is None:
         return {"error": "Please run /predict-and-advise first to load data"}
     
-    # Get baseline prediction
+    # Get baseline prediction (now predicts TOTAL grid load)
     baseline_prediction = model.predict(latest_input_features)[0]
     
-    # Get current data center load
+    # Get current data center load from the latest data
     current_datacenter_load = latest_df.iloc[-1]['datacenter_load']
     
-    # Apply what-if scenario
+    # Calculate load to shift (percentage of data center only)
     load_to_shift = current_datacenter_load * (shift_percentage / 100)
     adjusted_prediction = baseline_prediction - load_to_shift
     
@@ -143,13 +154,15 @@ def what_if_scenario(shift_percentage: float = 0):
         "original": original_stress,
         "with_shift": new_stress,
         "shift_percentage": shift_percentage,
+        "datacenter_load_current": round(current_datacenter_load, 2),
         "load_shifted_kw": round(load_to_shift, 2),
         "load_reduction_kw": round(baseline_prediction - adjusted_prediction, 2),
-        "recommendation": f"Shifting {shift_percentage}% of data center load would reduce stress from {original_stress['status']} to {new_stress['status']}"
+        "baseline_total_load": round(baseline_prediction, 2),
+        "adjusted_total_load": round(adjusted_prediction, 2),
+        "recommendation": f"Shifting {shift_percentage}% of data center load ({round(load_to_shift, 2)} KW) would reduce stress from {original_stress['status']} to {new_stress['status']}"
     }
 
 
-# ============ WEEK 7: 24-HOUR MULTI-STEP FORECASTING ============
 
 @app.get("/forecast-24h")
 def forecast_24h():
@@ -161,6 +174,7 @@ def forecast_24h():
     Returns:
         - predictions: List of 144 load values (KW) for next 24 hours
         - stress_metrics: Grid stress analysis for the forecast period
+        - anomalies: Anomaly detection results
         - timeline: Hour labels for the 24-hour period
     """
     
@@ -169,16 +183,23 @@ def forecast_24h():
     
     # Get latest data as dict for forecasting function
     latest_data = latest_df.iloc[-1]
+    datetime_val = pd.to_datetime(latest_data['Datetime'])
+    
     latest_state = {
         'Temperature': latest_data['Temperature'],
         'Humidity': latest_data['Humidity'],
-        'hour': pd.to_datetime(latest_data['Datetime']).hour,
-        'day_of_week': pd.to_datetime(latest_data['Datetime']).dayofweek,
-        'residential_lag': latest_data['residential_load'],
-        'datacenter_lag': latest_data['datacenter_load']
+        'hour': datetime_val.hour,
+        'day_of_week': datetime_val.dayofweek,
+        'month': datetime_val.month,
+        'day_of_month': datetime_val.day,
+        'residential_lag_1h': latest_df.iloc[-6]['residential_load'] if len(latest_df) >= 6 else latest_data['residential_load'],
+        'residential_lag_2h': latest_df.iloc[-12]['residential_load'] if len(latest_df) >= 12 else latest_data['residential_load'],
+        'datacenter_lag_1h': latest_df.iloc[-6]['datacenter_load'] if len(latest_df) >= 6 else latest_data['datacenter_load'],
+        'datacenter_lag_2h': latest_df.iloc[-12]['datacenter_load'] if len(latest_df) >= 12 else latest_data['datacenter_load'],
+        'industrial_lag_1h': latest_df.iloc[-6]['industrial_load'] if len(latest_df) >= 6 else latest_data['industrial_load']
     }
     
-    # Generate 24-hour recursive forecast (144 points)
+    # Generate 24-hour recursive forecast 
     forecast_24h_predictions = recursive_forecast_24h(
         model=model,
         latest_data=latest_state,
@@ -186,33 +207,219 @@ def forecast_24h():
         steps=144
     )
     
-    # Calculate stress metrics
-    stress_metrics = calculate_grid_stress(forecast_24h_predictions)
+    # Round predictions for consistency (BEFORE calculating metrics)
+    forecast_24h_rounded = [round(p, 2) for p in forecast_24h_predictions]
     
-    # Generate timeline labels (every hour for display purposes)
+    # Calculate stress metrics on ROUNDED values (so they match frontend display)
+    stress_metrics = calculate_grid_stress(forecast_24h_rounded)
+    
+    # Detect anomalies in the forecast
+    anomalies = detect_anomalies(forecast_24h_rounded)
+    
+    # Generate timeline labels
     current_hour = latest_state['hour']
     timeline = []
     for i in range(24):
         hour_label = (current_hour + i) % 24
         timeline.append(f"T+{i}h")
     
-    # Create hourly summary (average of 6 points per hour)
+    # Create hourly summary (AVERAGE of 6 ten-minute intervals per hour)
     hourly_predictions = []
     for hour in range(24):
         start_idx = hour * 6
         end_idx = (hour + 1) * 6
-        average = np.mean(forecast_24h_predictions[start_idx:end_idx])
+        average = np.mean(forecast_24h_rounded[start_idx:end_idx])
         hourly_predictions.append(round(average, 2))
     
     return {
-        "all_predictions_10m": [round(p, 2) for p in forecast_24h_predictions],
+        "all_predictions_10m": forecast_24h_rounded,
         "hourly_summary": hourly_predictions,
         "stress_metrics": stress_metrics,
+        "anomalies": anomalies,
         "timeline": timeline,
         "forecast_period": "24 hours (144 x 10-min intervals)"
     }
 
 
-# ============ MOUNT FRONTEND LAST (after all API routes) ============
-# This must be the LAST app mount so API routes are matched first
+@app.get("/api/anomalies")
+def get_anomalies():
+    """
+    Analyze load predictions for anomalies.
+    
+    Uses Isolation Forest to detect unusual patterns that may indicate:
+    - Data quality issues
+    - Unusual grid conditions
+    - Edge cases not seen in training data
+    
+    Returns:
+        - anomaly_analysis: Anomaly detection results
+        - model_confidence: Prediction confidence score
+        - recommendation: Suggested actions
+    """
+    
+    if latest_input_features is None or latest_df is None:
+        return {"error": "Please run /predict-and-advise first to load data"}
+    
+    # Generate 24-hour forecast for anomaly analysis
+    latest_data = latest_df.iloc[-1]
+    datetime_val = pd.to_datetime(latest_data['Datetime'])
+    
+    latest_state = {
+        'Temperature': latest_data['Temperature'],
+        'Humidity': latest_data['Humidity'],
+        'hour': datetime_val.hour,
+        'day_of_week': datetime_val.dayofweek,
+        'month': datetime_val.month,
+        'day_of_month': datetime_val.day,
+        'residential_lag_1h': latest_df.iloc[-6]['residential_load'] if len(latest_df) >= 6 else latest_data['residential_load'],
+        'residential_lag_2h': latest_df.iloc[-12]['residential_load'] if len(latest_df) >= 12 else latest_data['residential_load'],
+        'datacenter_lag_1h': latest_df.iloc[-6]['datacenter_load'] if len(latest_df) >= 6 else latest_data['datacenter_load'],
+        'datacenter_lag_2h': latest_df.iloc[-12]['datacenter_load'] if len(latest_df) >= 12 else latest_data['datacenter_load'],
+        'industrial_lag_1h': latest_df.iloc[-6]['industrial_load'] if len(latest_df) >= 6 else latest_data['industrial_load']
+    }
+    
+    forecast_predictions = recursive_forecast_24h(
+        model=model,
+        latest_data=latest_state,
+        feature_names=feature_names,
+        steps=144
+    )
+    
+    # Detect anomalies
+    anomaly_analysis = detect_anomalies(forecast_predictions)
+    
+    # Calculate model confidence
+    baseline_pred = model.predict(latest_input_features)[0]
+    confidence = calculate_model_confidence(latest_df, baseline_pred, forecast_predictions)
+    
+    # Generate recommendation
+    if anomaly_analysis['confidence_score'] > 85:
+        recommendation = "Model confidence is high. Proceed with predictions and recommendations."
+    elif anomaly_analysis['confidence_score'] > 70:
+        recommendation = "Model confidence is moderate. Monitor anomalies but predictions are generally reliable."
+    else:
+        recommendation = "Model confidence is low. Recommended: Review data quality and check assumptions."
+    
+    return {
+        "anomaly_analysis": anomaly_analysis,
+        "model_confidence": confidence,
+        "recommendation": recommendation,
+        "generated_at": datetime.now().isoformat()
+    }
+
+
+@app.post("/api/commit-shift")
+async def commit_shift(
+    original_load: float,
+    optimized_load: float,
+    shift_percentage: float,
+    grid_status: str = "MODERATE",
+    reason: str = "",
+    operator_id: str = "System"
+):
+    """
+    Record a load shift commitment to the audit trail.
+    
+    This endpoint logs when an operator commits to following the AI's recommendation.
+    Used for Week 8: Shift Confirmation Module
+    
+    Args:
+        original_load: Load before shift (KW)
+        optimized_load: Load after shift (KW)
+        shift_percentage: Percentage of load shifted (0-100)
+        grid_status: Grid status at commitment (CRITICAL/HIGH/MODERATE/SAFE)
+        reason: Why the shift was made
+        operator_id: ID of operator making commitment
+    
+    Returns:
+        - commitment: Recorded commitment details
+        - kpi_impact: How this affects overall KPIs
+    """
+    
+    # Calculate CO2 saved (0.5 kg per MWh)
+    load_shifted_kw = original_load - optimized_load
+    co2_saved = load_shifted_kw * 0.0005  # kg CO2 per KW
+    
+    # Record commitment
+    commitment = record_commitment(
+        original_load_kw=original_load,
+        optimized_load_kw=optimized_load,
+        shift_percentage=shift_percentage,
+        grid_status=grid_status,
+        co2_saved_estimate=co2_saved,
+        operator_id=operator_id,
+        reason=reason
+    )
+    
+    # Get updated KPIs
+    kpi_metrics = get_kpi_metrics()
+    
+    return {
+        "success": True,
+        "commitment": commitment,
+        "updated_kpis": kpi_metrics,
+        "message": f"Commitment recorded. Total CO2 saved: {kpi_metrics['total_co2_saved_kg']} kg"
+    }
+
+
+@app.get("/api/kpi-metrics")
+def get_kpi_dashboard():
+    """
+    Get current KPI metrics for sustainability dashboard.
+    
+    Returns real-time metrics for:
+    - Total CO2 Saved
+    - Total Load Shifted
+    - Audit Trail Count
+    - Sustainability Progress (% toward Net Zero contribution)
+    
+    Used for Week 8/9: KPI Dashboard & Sustainability Reporting
+    
+    Returns:
+        - metrics: Current KPI values
+        - progress: Sustainability progress tracking
+        - audit_trail: Recent commitment entries
+    """
+    
+    kpi_metrics = get_kpi_metrics()
+    audit_history = get_commitment_history(limit=5)
+    
+    return {
+        "metrics": {
+            "total_commitments": kpi_metrics['total_commitments'],
+            "total_co2_saved_kg": kpi_metrics['total_co2_saved_kg'],
+            "total_load_shifted_kwh": kpi_metrics['total_load_shifted_kwh'],
+            "average_shift_percentage": kpi_metrics['total_reduction_percent'],
+            "audit_trail_entries": kpi_metrics['audit_trail_entries']
+        },
+        "sustainability_progress": {
+            "score": kpi_metrics['sustainability_score'],
+            "net_zero_contribution": kpi_metrics['net_zero_contribution_percent'],
+            "target": "India Net Zero 2070",
+            "progress_description": f"{kpi_metrics['sustainability_score']:.1f}% of demo target (1000 kg CO2)"
+        },
+        "recent_commitments": audit_history,
+        "last_update": datetime.now().isoformat()
+    }
+
+
+@app.get("/api/commitment-history")
+def get_full_audit_trail(limit: int = 50):
+    """
+    Get complete commitment audit trail for reporting.
+    
+    Args:
+        limit: Maximum records to return
+    
+    Returns:
+        List of all recorded commitments
+    """
+    
+    return {
+        "total_records": len(get_commitment_history(limit=1000)),
+        "returned_records": len(get_commitment_history(limit=limit)),
+        "audit_trail": get_commitment_history(limit=limit)
+    }
+
+
 app.mount("/", StaticFiles(directory="frontend_new/dist", html=True), name="frontend")

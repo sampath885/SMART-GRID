@@ -82,7 +82,7 @@ export default function ApiDocs() {
     {
       method: 'GET',
       path: '/what-if-scenario?shift_percentage=X',
-      description: 'Simulate load shifting and compare grid stress',
+      description: 'Simulate load shifting and compare results',
       request: 'Query: shift_percentage (0-100)',
       response: 'original, with_shift, load_shifted_kw, recommendation'
     },
@@ -91,7 +91,7 @@ export default function ApiDocs() {
       path: '/forecast-24h',
       description: 'Generate 24-hour recursive forecast (144 points)',
       request: 'None',
-      response: 'hourly_summary, all_predictions_10m, stress_metrics, timeline'
+      response: 'hourly_summary, timeline, anomalies'
     },
   ]
 
@@ -179,7 +179,9 @@ export default function ApiDocs() {
           <li>✓ Recursive 24-hour forecasting (144 data points)</li>
           <li>✓ What-If scenario simulation for load shifting</li>
           <li>✓ XAI (Explainable AI) feature importance analysis</li>
+          {/* Grid stress - Commented out (under review)
           <li>✓ Grid stress classification (SAFE → CRITICAL)</li>
+          */}
           <li>✓ Carbon sustainability impact scoring</li>
         </ul>
       </Card>

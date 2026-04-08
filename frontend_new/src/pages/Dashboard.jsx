@@ -3,12 +3,13 @@ import { AlertCircle, TrendingUp, Zap, Clock, BarChart3 } from 'lucide-react'
 import Card from '../components/Card'
 import MetricCard from '../components/MetricCard'
 import UploadWidget from '../components/UploadWidget'
+import KPIMetrics from '../components/KPIMetrics'
 import { THEME } from '../theme'
 
 export default function Dashboard() {
   const [metrics, setMetrics] = useState({
     currentLoad: 28500,
-    gridStatus: 'MODERATE STRESS',
+    // gridStatus: 'MODERATE STRESS', // Commented out (under review)
     uptime: '99.8%',
     efficiency: '94.2%',
   })
@@ -86,6 +87,7 @@ export default function Dashboard() {
         status="moderate"
       />
       
+      {/* Grid Status - Commented out (under review)
       <MetricCard 
         label="Grid Status"
         value={metrics.gridStatus}
@@ -93,6 +95,7 @@ export default function Dashboard() {
         trend="Stable"
         status="warning"
       />
+      */}
       
       <MetricCard 
         label="System Uptime"
@@ -140,6 +143,11 @@ export default function Dashboard() {
           />
         </div>
       </Card>
+
+      {/* KPI Dashboard & Sustainability Metrics */}
+      <div style={{ gridColumn: '1 / -1' }}>
+        <KPIMetrics />
+      </div>
     </div>
   )
 }

@@ -1,57 +1,83 @@
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
-import joblib # Used to save the "Brain" to a file
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.preprocessing import StandardScaler
+import joblib
 import numpy as np
 import os
 
 def train_electricity_model(csv_path):
-    # 1. Load the cleaned data
     df = pd.read_csv(csv_path)
     df['Datetime'] = pd.to_datetime(df['Datetime'])
 
-    # 2. FEATURE ENGINEERING (Teaching the AI what to look at)
-    # We extract the Hour and Day because patterns change based on time
+    # TEMPORAL FEATURES
     df['hour'] = df['Datetime'].dt.hour
     df['day_of_week'] = df['Datetime'].dt.dayofweek
+    df['month'] = df['Datetime'].dt.month
+    df['day_of_month'] = df['Datetime'].dt.day
     
-    # LAG FEATURES: We tell the AI: "Look at the load from 1 hour ago"
-    # This is how the AI gets 'memory'.
-    df['residential_lag'] = df['residential_load'].shift(6) # 6 steps = 60 mins
-    df['datacenter_lag'] = df['datacenter_load'].shift(6)
+    # CYCLICAL ENCODING for hour (treats 23:00 close to 00:00)
+    df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
+    df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
     
-    # Drop the first few rows because they won't have 'lag' data
+    # MORE LAG FEATURES (look back further)
+    df['residential_lag_1h'] = df['residential_load'].shift(6)   # 1 hour back
+    df['residential_lag_2h'] = df['residential_load'].shift(12)  # 2 hours back
+    df['datacenter_lag_1h'] = df['datacenter_load'].shift(6)
+    df['datacenter_lag_2h'] = df['datacenter_load'].shift(12)
+    df['industrial_lag_1h'] = df['industrial_load'].shift(6)
+    
+    # ROLLING AVERAGES (capture trends)
+    df['temp_rolling_3h'] = df['Temperature'].rolling(18).mean()
+    df['humidity_rolling_3h'] = df['Humidity'].rolling(18).mean()
+    
     df = df.dropna()
 
-    # 3. SELECTING INPUTS AND OUTPUTS
-    # X = Features (The hints), y = Target (What we want to predict)
-    X = df[['Temperature', 'Humidity', 'hour', 'day_of_week', 'residential_lag', 'datacenter_lag']]
-    y = df['residential_load'] # We are predicting the Residential Load first
+    # FEATURES for the model
+    X = df[[
+        'Temperature', 'Humidity', 'hour', 'day_of_week', 'month', 'day_of_month',
+        'hour_sin', 'hour_cos',
+        'residential_lag_1h', 'residential_lag_2h',
+        'datacenter_lag_1h', 'datacenter_lag_2h', 'industrial_lag_1h',
+        'temp_rolling_3h', 'humidity_rolling_3h'
+    ]]
+    
+    # Predict TOTAL grid load (residential + datacenter + industrial)
+    y = df['residential_load'] + df['datacenter_load'] + df['industrial_load']
 
-    # 4. TRAIN/TEST SPLIT
-    # 80% for study, 20% for the 'final exam'
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # 5. THE ALGORITHM: RANDOM FOREST
-    # n_estimators=100 means 100 decision trees are voting.
-    print("Training the AI Brain (Random Forest)...")
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    # OPTIMIZED HYPERPARAMETERS
+    print("Training the AI Brain (Optimized Random Forest)...")
+    model = RandomForestRegressor(
+        n_estimators=100,
+        max_depth=20,           # Prevent overfitting
+        min_samples_split=10,   # Require more samples to split
+        min_samples_leaf=5,     # Require more samples in leaves
+        random_state=42,
+        n_jobs=-1
+    )
     model.fit(X_train, y_train)
 
-    # 6. EVALUATION (The Grade)
+    # EVALUATION
     predictions = model.predict(X_test)
     rmse = np.sqrt(mean_squared_error(y_test, predictions))
-    print(f"Model Training Complete. RMSE (Error): {round(rmse, 2)} KW")
+    mae = mean_absolute_error(y_test, predictions)
+    mape = np.mean(np.abs((y_test - predictions) / y_test)) * 100
+    
+    print(f"Model Training Complete!")
+    print(f"  RMSE (Root Mean Squared Error): {round(rmse, 2)} KW")
+    print(f"  MAE (Mean Absolute Error): {round(mae, 2)} KW")
+    print(f"  MAPE (Mean Absolute Percentage Error): {round(mape, 2)}%")
+    print(f"  Avg Load: {round(y_test.mean(), 2)} KW")
+    print(f"  Error as % of Avg: {round((rmse / y_test.mean()) * 100, 2)}%")
 
-    # 7. SAVE THE BRAIN
-    # We save the model as a .pkl file so we don't have to train it every time.
     if not os.path.exists('models'): os.mkdir('models')
     joblib.dump(model, 'models/electricity_model.pkl')
-    joblib.dump(X.columns.tolist(), 'models/feature_names.pkl') # Save column names
+    joblib.dump(X.columns.tolist(), 'models/feature_names.pkl')
     
-    return rmse
+    return rmse, mae, mape
 
 if __name__ == "__main__":
-    # You run this manually once to create the brain
     train_electricity_model("data/processed_electricity_data.csv")
