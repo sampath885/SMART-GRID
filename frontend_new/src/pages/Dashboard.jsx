@@ -8,10 +8,10 @@ import { THEME } from '../theme'
 
 export default function Dashboard() {
   const [metrics, setMetrics] = useState({
-    currentLoad: 28500,
-    // gridStatus: 'MODERATE STRESS', // Commented out (under review)
-    uptime: '99.8%',
-    efficiency: '94.2%',
+    currentLoad: '—',
+    gridStatus: 'LOADING...', // NEW: Grid stress status
+    uptime: '—',
+    efficiency: '—',
   })
 
   const dashboardStyles = {
@@ -81,9 +81,9 @@ export default function Dashboard() {
       
       <MetricCard 
         label="Current Load"
-        value={`${metrics.currentLoad.toLocaleString()} KW`}
+        value={`${metrics.currentLoad} KW`}
         icon={<BarChart3 size={24} />}
-        trend="+2.3%"
+        trend="—"
         status="moderate"
       />
       
@@ -101,7 +101,7 @@ export default function Dashboard() {
         label="System Uptime"
         value={metrics.uptime}
         icon={<Clock size={24} />}
-        trend="↑ Excellent"
+        trend="—"
         status="success"
       />
 
@@ -109,7 +109,7 @@ export default function Dashboard() {
         label="Efficiency"
         value={metrics.efficiency}
         icon={<TrendingUp size={24} />}
-        trend="+0.5%"
+        trend="—"
         status="success"
       />
 
@@ -145,9 +145,11 @@ export default function Dashboard() {
       </Card>
 
       {/* KPI Dashboard & Sustainability Metrics */}
+      {/* Commented out (under review)
       <div style={{ gridColumn: '1 / -1' }}>
         <KPIMetrics />
       </div>
+      */}
     </div>
   )
 }

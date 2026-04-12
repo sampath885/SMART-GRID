@@ -8,8 +8,17 @@ import shutil
 import os
 from datetime import datetime
 from app.data_loader import load_and_clean_data
-from app.forecasting import recursive_forecast_24h, apply_whatif_scenario, calculate_grid_stress, detect_anomalies, calculate_model_confidence
+from app.forecasting import (
+    recursive_forecast_24h, 
+    apply_whatif_scenario, 
+    calculate_grid_stress, 
+    calculate_sustainability_score,  # NEW: Time-of-use sustainability
+    optimize_load_shift_autonomous,  # NEW: Auto-pilot optimizer
+    detect_anomalies, 
+    calculate_model_confidence
+)
 from app.kpi_tracker import record_commitment, get_kpi_metrics, get_commitment_history
+from app.analysis_viz import build_safety_envelope_payload, build_xai_radar_payload
 
 app = FastAPI()
 
@@ -91,6 +100,10 @@ async def predict_and_advise(file: UploadFile = File(...)):
     importances = model.feature_importances_
     top_feature = feature_names[np.argmax(importances)]
 
+    current_temp_c = float(latest_data["Temperature"])
+    safety_envelope = build_safety_envelope_payload(latest_df, prediction, current_temp_c)
+    xai_radar = build_xai_radar_payload(list(feature_names), importances.tolist())
+
     status = "NORMAL"
     advisory = "Grid is stable. Routine operations recommended."
     
@@ -101,15 +114,31 @@ async def predict_and_advise(file: UploadFile = File(...)):
         else:
             advisory = "ALERT: Predicted peak due to historical trend. Shift non-critical backups to 2 AM."
 
-    # 5. SUSTAINABILITY SCORECARD
-    co2_saved = round((prediction * 0.0005), 2) 
+    # 5. DYNAMIC SUSTAINABILITY SCORECARD (WITH TIME-OF-USE CARBON INTENSITY)
+    # Calculate CO2 impact if load is shifted from current hour to optimal solar window (2 PM)
+    datacenter_current = latest_df.iloc[-1]['datacenter_load']
+    sustainability = calculate_sustainability_score(
+        load_shifted_kw=datacenter_current,
+        original_hour=hour,
+        shifted_hour=14,  # 2 PM - peak solar window
+        duration_hours=1
+    )
 
     return {
         "prediction_next_hour_kw": round(prediction, 2),
         "grid_status": status,
         "ai_reason": f"High impact from {top_feature}",
         "advisory": advisory,
-        "sustainability_impact": f"Action saves approx {co2_saved}kg of CO2"
+        # NEW: Detailed sustainability metrics
+        "sustainability_impact": sustainability['message'],
+        "co2_saved_kg": sustainability['co2_saved_kg'],
+        "sustainability_score": sustainability['sustainability_score'],
+        "environmental_impact": sustainability['environmental_impact'],
+        "percentage_reduction": sustainability['percentage_reduction'],
+        # Analysis visualizations (thermal SOA + grouped XAI)
+        "safety_envelope": safety_envelope,
+        "xai_radar": xai_radar,
+        "top_feature": top_feature,
     }
 
 
@@ -148,18 +177,41 @@ def what_if_scenario(shift_percentage: float = 0):
     
     # Calculate stress for both scenarios
     original_stress = calculate_grid_stress([baseline_prediction])
-    new_stress = calculate_grid_stress([adjusted_prediction])
+    new_stress_after_shift = calculate_grid_stress([adjusted_prediction])
+    
+    # Calculate sustainability impact with time-of-use carbon intensity
+    current_hour = pd.to_datetime(latest_df.iloc[-1]['Datetime']).hour
+    sustainability = calculate_sustainability_score(
+        load_shifted_kw=load_to_shift,
+        original_hour=current_hour,
+        shifted_hour=14,  # Shift to 2 PM (peak solar window)
+        duration_hours=1
+    )
     
     return {
-        "original": original_stress,
-        "with_shift": new_stress,
+        # === GRID STRESS ANALYSIS ===
+        "original_stress": original_stress,
+        "new_stress_after_shift": new_stress_after_shift,
         "shift_percentage": shift_percentage,
         "datacenter_load_current": round(current_datacenter_load, 2),
         "load_shifted_kw": round(load_to_shift, 2),
         "load_reduction_kw": round(baseline_prediction - adjusted_prediction, 2),
         "baseline_total_load": round(baseline_prediction, 2),
         "adjusted_total_load": round(adjusted_prediction, 2),
-        "recommendation": f"Shifting {shift_percentage}% of data center load ({round(load_to_shift, 2)} KW) would reduce stress from {original_stress['status']} to {new_stress['status']}"
+        
+        # === NEW: SUSTAINABILITY IMPACT ===
+        "sustainability_metrics": {
+            "co2_saved_kg": sustainability['co2_saved_kg'],
+            "percentage_reduction": sustainability['percentage_reduction'],
+            "sustainability_score": sustainability['sustainability_score'],
+            "environmental_impact": sustainability['environmental_impact'],
+            "message": sustainability['message']
+        },
+        
+        # === RECOMMENDATIONS ===
+        "grid_recommendation": f"Shifting {shift_percentage}% of data center load ({round(load_to_shift, 2)} KW) would change grid stress from {original_stress['status']} to {new_stress_after_shift['status']}",
+        "sustainability_recommendation": sustainability['message'],
+        "combined_advisory": f"✅ Shift {shift_percentage}% to 2 PM solar window: Stress {new_stress_after_shift['status']}, CO2 Reduction {sustainability['percentage_reduction']}%"
     }
 
 
@@ -239,6 +291,73 @@ def forecast_24h():
         "timeline": timeline,
         "forecast_period": "24 hours (144 x 10-min intervals)"
     }
+
+
+@app.get("/auto-pilot-optimizer")
+def auto_pilot_optimizer():
+    """
+    ===================================
+    MULTI-AGENT AUTO-PILOT OPTIMIZER
+    ===================================
+    
+    Autonomously finds the OPTIMAL load shift percentage that:
+    1. Keeps grid stress SAFE (< 80%)
+    2. Maximizes CO2 savings (Sustainability Score > 90%)
+    3. Minimizes economic impact
+    
+    Uses Pareto Optimization to test 1,000 scenarios and find the best balance.
+    
+    Returns:
+        - optimal_shift_percentage: Best shift amount
+        - optimal_grid_stress: Resulting stress level
+        - optimal_sustainability: CO2 savings potential
+        - alternatives_top_5: Other viable options for comparison
+        - recommendation: Auto-pilot advisory message
+    """
+    
+    if latest_input_features is None or latest_df is None:
+        return {"error": "Please run /predict-and-advise first to load data"}
+    
+    # Generate 24-hour baseline forecast
+    latest_data = latest_df.iloc[-1]
+    datetime_val = pd.to_datetime(latest_data['Datetime'])
+    
+    latest_state = {
+        'Temperature': latest_data['Temperature'],
+        'Humidity': latest_data['Humidity'],
+        'hour': datetime_val.hour,
+        'day_of_week': datetime_val.dayofweek,
+        'month': datetime_val.month,
+        'day_of_month': datetime_val.day,
+        'residential_lag_1h': latest_df.iloc[-6]['residential_load'] if len(latest_df) >= 6 else latest_data['residential_load'],
+        'residential_lag_2h': latest_df.iloc[-12]['residential_load'] if len(latest_df) >= 12 else latest_data['residential_load'],
+        'datacenter_lag_1h': latest_df.iloc[-6]['datacenter_load'] if len(latest_df) >= 6 else latest_data['datacenter_load'],
+        'datacenter_lag_2h': latest_df.iloc[-12]['datacenter_load'] if len(latest_df) >= 12 else latest_data['datacenter_load'],
+        'industrial_lag_1h': latest_df.iloc[-6]['industrial_load'] if len(latest_df) >= 6 else latest_data['industrial_load']
+    }
+    
+    # Generate baseline forecast
+    baseline_predictions = recursive_forecast_24h(
+        model=model,
+        latest_data=latest_state,
+        feature_names=feature_names,
+        steps=144
+    )
+    
+    # Get current datacenter load
+    current_datacenter_load = latest_data['datacenter_load']
+    current_hour = datetime_val.hour
+    
+    # Run the auto-pilot optimizer
+    optimization_result = optimize_load_shift_autonomous(
+        baseline_predictions=baseline_predictions,
+        datacenter_load=current_datacenter_load,
+        original_hour=current_hour,
+        capacity=100000,
+        verbose=True
+    )
+    
+    return optimization_result
 
 
 @app.get("/api/anomalies")
@@ -338,7 +457,17 @@ async def commit_shift(
     
     # Calculate CO2 saved (0.5 kg per MWh)
     load_shifted_kw = original_load - optimized_load
-    co2_saved = load_shifted_kw * 0.0005  # kg CO2 per KW
+    
+    # NEW: Calculate CO2 saved using time-of-use carbon intensity
+    # Assume shift occurs at current hour, optimized for 2 PM (peak solar)
+    current_hour = pd.to_datetime(datetime.now()).hour
+    sustainability = calculate_sustainability_score(
+        load_shifted_kw=load_shifted_kw,
+        original_hour=current_hour,
+        shifted_hour=14,  # 2 PM - peak solar
+        duration_hours=1
+    )
+    co2_saved = sustainability['co2_saved_kg']
     
     # Record commitment
     commitment = record_commitment(
@@ -357,8 +486,13 @@ async def commit_shift(
     return {
         "success": True,
         "commitment": commitment,
+        "sustainability_metrics": {
+            "co2_saved_kg": sustainability['co2_saved_kg'],
+            "percentage_reduction": sustainability['percentage_reduction'],
+            "environmental_impact": sustainability['environmental_impact']
+        },
         "updated_kpis": kpi_metrics,
-        "message": f"Commitment recorded. Total CO2 saved: {kpi_metrics['total_co2_saved_kg']} kg"
+        "message": f"Commitment recorded. CO2 saved: {co2_saved} kg. Total: {kpi_metrics['total_co2_saved_kg']} kg"
     }
 
 

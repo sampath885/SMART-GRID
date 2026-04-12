@@ -13,7 +13,7 @@ export default function Sidebar({ isOpen, onToggle }) {
     { path: '/', label: 'Dashboard', icon: Home },
     { path: '/analysis', label: 'Analysis', icon: BarChart3 },
     { path: '/forecast', label: '24h Forecast', icon: TrendingUp },
-    { path: '/what-if', label: 'What-If Reactor', icon: Zap },
+    { path: '/what-if', label: 'What-If', icon: Zap },
     { path: '/api-docs', label: 'API Docs', icon: BookOpen },
   ]
 

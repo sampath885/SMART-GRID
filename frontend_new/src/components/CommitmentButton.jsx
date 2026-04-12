@@ -81,7 +81,7 @@ const CommitmentButton = ({ scenarioData, onCommit }) => {
         </div>
       )}
 
-      {!showForm && !success ? (
+      {/* {!showForm && !success ? (
         <button
           className="commit-button primary"
           onClick={() => setShowForm(true)}
@@ -89,7 +89,7 @@ const CommitmentButton = ({ scenarioData, onCommit }) => {
         >
           🔒 COMMIT TO GRID SCHEDULE
         </button>
-      ) : null}
+      ) : null} */}
 
       {showForm && (
         <div className="commitment-form">

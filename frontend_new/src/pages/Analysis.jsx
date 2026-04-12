@@ -1,6 +1,8 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
 import Card from '../components/Card'
+import AnalysisSafetyEnvelope from '../components/AnalysisSafetyEnvelope'
+import AnalysisXaiRadar from '../components/AnalysisXaiRadar'
 import { AlertCircle, TrendingUp, Zap, Leaf } from 'lucide-react'
 import { useGridData } from '../context/GridDataContext'
 import { THEME } from '../theme'
@@ -17,6 +19,12 @@ export default function Analysis() {
     },
     fullWidth: {
       gridColumn: '1 / -1',
+    },
+    chartsRow: {
+      gridColumn: '1 / -1',
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+      gap: THEME.spacing.xl,
     },
     title: {
       fontSize: '22px',
@@ -118,18 +126,34 @@ export default function Analysis() {
         </div>
       </Card> */}
 
+      {/* Sustainability Card - ACTIVE */}
       <Card>
         <h3 style={{ fontWeight: '600', marginBottom: THEME.spacing.md, display: 'flex', alignItems: 'center', gap: THEME.spacing.md }}>
           <Leaf size={20} color={THEME.colors.success} />
-          Sustainability
+          Sustainability Impact
         </h3>
         <div style={{ fontSize: '18px', fontWeight: '700', color: THEME.colors.success, marginBottom: THEME.spacing.md }}>
-          {analysisData.sustainability_impact}
+          {analysisData.sustainability_score}% Score
         </div>
-        <div style={{ fontSize: '12px', color: THEME.colors.text.secondary }}>
-          Carbon reduction potential
+        <div style={{ fontSize: '12px', color: THEME.colors.text.secondary, lineHeight: '1.6' }}>
+          <div style={{ marginBottom: THEME.spacing.sm }}><strong>CO₂ Savings:</strong> {analysisData.co2_saved_kg?.toFixed(2)} kg</div>
+          <div style={{ marginBottom: THEME.spacing.sm }}><strong>Reduction:</strong> {analysisData.percentage_reduction?.toFixed(1)}%</div>
+          <div style={{ marginBottom: THEME.spacing.sm }}>{analysisData.environmental_impact}</div>
+          <div style={{ fontStyle: 'italic', color: THEME.colors.text.secondary, fontSize: '11px', marginTop: THEME.spacing.sm }}>
+            {analysisData.sustainability_impact}
+          </div>
         </div>
       </Card>
+
+      {/* Thermal SOA + XAI radar */}
+      {(analysisData.safety_envelope || analysisData.xai_radar) && (
+        <div style={analysisStyles.chartsRow}>
+          {analysisData.safety_envelope && (
+            <AnalysisSafetyEnvelope data={analysisData.safety_envelope} />
+          )}
+          {analysisData.xai_radar && <AnalysisXaiRadar data={analysisData.xai_radar} />}
+        </div>
+      )}
 
       {/* AI Reason */}
       <Card style={analysisStyles.fullWidth}>
@@ -146,7 +170,25 @@ export default function Analysis() {
           fontSize: '14px',
           lineHeight: '1.6'
         }}>
-          {analysisData.ai_reason}
+          <div>{analysisData.ai_reason}</div>
+          {analysisData.xai_radar?.dominant_axis && (
+            <div
+              style={{
+                marginTop: THEME.spacing.md,
+                paddingTop: THEME.spacing.md,
+                borderTop: `1px solid rgba(13, 148, 136, 0.25)`,
+                fontSize: '13px',
+                color: THEME.colors.text.secondary,
+              }}
+            >
+              <strong style={{ color: THEME.colors.text.primary }}>Radar consensus:</strong>{' '}
+              largest grouped contribution is{' '}
+              <strong style={{ color: THEME.colors.accent.lighter }}>
+                {analysisData.xai_radar.dominant_axis}
+              </strong>{' '}
+              (see chart above).
+            </div>
+          )}
         </div>
       </Card>
 

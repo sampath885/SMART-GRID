@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext } from 'react'
+import React, { createContext, useState, useContext, useMemo } from 'react'
 
 // Create context
 const GridDataContext = createContext()
@@ -11,18 +11,21 @@ export function GridDataProvider({ children }) {
   const [currentFile, setCurrentFile] = useState(null)
   const [lastUpdate, setLastUpdate] = useState(null)
 
-  const value = {
-    analysisData,
-    setAnalysisData,
-    forecastData,
-    setForecastData,
-    whatIfData,
-    setWhatIfData,
-    currentFile,
-    setCurrentFile,
-    lastUpdate,
-    setLastUpdate,
-  }
+  const value = useMemo(
+    () => ({
+      analysisData,
+      setAnalysisData,
+      forecastData,
+      setForecastData,
+      whatIfData,
+      setWhatIfData,
+      currentFile,
+      setCurrentFile,
+      lastUpdate,
+      setLastUpdate,
+    }),
+    [analysisData, forecastData, whatIfData, currentFile, lastUpdate]
+  )
 
   return (
     <GridDataContext.Provider value={value}>
