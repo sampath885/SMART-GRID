@@ -162,7 +162,7 @@ export default function Forecast() {
               <div style={{ marginBottom: THEME.spacing.sm }}>Combined Stress: <strong>{forecastData.stress_metrics.combined_stress?.toFixed(1)}%</strong></div>
               <div style={{ marginBottom: THEME.spacing.sm }}>Peak Stress: <strong>{forecastData.stress_metrics.peak_stress_pct?.toFixed(1)}%</strong></div>
               <div style={{ fontSize: '11px', color: THEME.colors.text.tertiary, marginTop: THEME.spacing.sm }}>
-                Derived from the full forecast curve vs. assumed capacity (90% of 100 MW usable).
+                Derived from the full forecast curve using temperature-derated usable capacity and calibrated stress weights.
               </div>
             </div>
           </Card>
@@ -281,6 +281,11 @@ export default function Forecast() {
           hourIndex={hourModal.hourIndex}
           hourlyAverage={hourModal.hourlyAverage}
           loads={getForecastHourLoads(forecastData.all_predictions_10m, hourModal.hourIndex)}
+          stressConfig={{
+            capacity: forecastData.stress_metrics?.capacity,
+            temperatureC: forecastData.stress_metrics?.temperature_c,
+            stressWeights: forecastData.stress_metrics?.stress_weights,
+          }}
           onClose={closeHourModal}
         />
       )}

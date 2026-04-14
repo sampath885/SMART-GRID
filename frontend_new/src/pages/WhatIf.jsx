@@ -12,7 +12,11 @@ export default function WhatIf() {
   const [shiftPercentage, setShiftPercentage] = useState(() =>
     Number(whatIfData?.shift_percentage) || 0
   )
+  const [pendingShiftPercentage, setPendingShiftPercentage] = useState(() =>
+    Number(whatIfData?.shift_percentage) || 0
+  )
   const [results, setResults] = useState(whatIfData)
+  const [isSimulating, setIsSimulating] = useState(false)
   /** Only reset results from context when a new file upload completes (lastUpdate changes), not on every render. */
   const syncedLastUpdateRef = useRef(null)
 
@@ -21,7 +25,9 @@ export default function WhatIf() {
     if (syncedLastUpdateRef.current === lastUpdate) return
     syncedLastUpdateRef.current = lastUpdate
     setResults(whatIfData)
-    setShiftPercentage(Number(whatIfData.shift_percentage) || 0)
+    const initialShift = Number(whatIfData.shift_percentage) || 0
+    setShiftPercentage(initialShift)
+    setPendingShiftPercentage(initialShift)
   }, [lastUpdate, whatIfData])
 
   const whatIfStyles = {
@@ -66,25 +72,33 @@ export default function WhatIf() {
     }
   }
 
-  const handleSliderChange = async (e) => {
+  const handleSliderChange = (e) => {
     const value = parseFloat(e.target.value)
-    setShiftPercentage(value)
+    setPendingShiftPercentage(value)
+  }
 
+  const runSimulation = async () => {
+    setIsSimulating(true)
     try {
       const response = await fetch(
-        `/api/what-if-scenario?shift_percentage=${encodeURIComponent(value)}`
+        `/api/what-if-scenario?shift_percentage=${encodeURIComponent(pendingShiftPercentage)}`
       )
       const data = await response.json()
       if (data.error) {
         console.warn('What-if API:', data.error)
+        setIsSimulating(false)
         return
       }
       setResults(data)
       if (data.shift_percentage != null) {
-        setShiftPercentage(Number(data.shift_percentage))
+        const applied = Number(data.shift_percentage)
+        setShiftPercentage(applied)
+        setPendingShiftPercentage(applied)
       }
     } catch (err) {
       console.error('Error fetching what-if scenario:', err)
+    } finally {
+      setIsSimulating(false)
     }
   }
 
@@ -158,7 +172,7 @@ export default function WhatIf() {
           <Info size={20} color={THEME.colors.accent.primary} style={{ flexShrink: 0, marginTop: '2px' }} />
           <div style={{ fontSize: '13px', color: THEME.colors.text.secondary, lineHeight: 1.55 }}>
             <strong style={{ color: THEME.colors.text.primary }}>Simulation scope:</strong>{' '}
-            Stress and metrics below are <strong style={{ color: THEME.colors.accent.lighter }}>model outputs</strong> from your latest upload (baseline prediction + shift rules). They are <strong style={{ color: THEME.colors.text.primary }}>not</strong> live grid readings at the current moment.
+            Stress and metrics below are <strong style={{ color: THEME.colors.accent.lighter }}>model outputs</strong> from your latest upload (baseline prediction + shift rules). For each slider value, the simulator evaluates peak-solar target hours (10 AM-4 PM) and shows the best tradeoff between CO₂ savings and projected stress at the shifted hour.
           </div>
         </div>
       </div>
@@ -174,7 +188,7 @@ export default function WhatIf() {
               fontWeight: '700', 
               color: THEME.colors.accent.primary 
             }}>
-              {shiftPercentage.toFixed(0)}%
+              {pendingShiftPercentage.toFixed(0)}%
             </span>
           </div>
           <input
@@ -182,7 +196,7 @@ export default function WhatIf() {
             min="0"
             max="100"
             step="5"
-            value={shiftPercentage}
+            value={pendingShiftPercentage}
             onChange={handleSliderChange}
             style={whatIfStyles.slider}
           />
@@ -196,34 +210,34 @@ export default function WhatIf() {
             <span>No Shift</span>
             <span>100% Shift</span>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: THEME.spacing.md, marginTop: THEME.spacing.lg }}>
+            <button
+              type="button"
+              onClick={runSimulation}
+              disabled={isSimulating}
+              style={{
+                padding: `${THEME.spacing.sm} ${THEME.spacing.lg}`,
+                borderRadius: '8px',
+                border: 'none',
+                background: THEME.colors.gradient.teal,
+                color: '#0a0e15',
+                fontWeight: '700',
+                cursor: isSimulating ? 'not-allowed' : 'pointer',
+                opacity: isSimulating ? 0.7 : 1,
+                transition: THEME.transitions.smooth,
+              }}
+            >
+              {isSimulating ? 'Running...' : 'Run Simulation'}
+            </button>
+            <span style={{ fontSize: '12px', color: THEME.colors.text.secondary }}>
+              Applied: <strong style={{ color: THEME.colors.text.primary }}>{shiftPercentage.toFixed(0)}%</strong>
+            </span>
+          </div>
         </div>
       </Card>
 
       {results && (
         <>
-          <Card style={whatIfStyles.fullWidth}>
-            <h3 style={{ fontWeight: '600', marginBottom: THEME.spacing.lg, display: 'flex', alignItems: 'center', gap: THEME.spacing.md }}>
-              <TrendingDown size={20} color={THEME.colors.accent.primary} />
-              Scenario Impact Analysis
-            </h3>
-            <div style={{
-              background: `rgba(16, 185, 129, 0.1)`,
-              border: `1px solid ${THEME.colors.success}`,
-              borderRadius: '8px',
-              padding: THEME.spacing.lg,
-              color: THEME.colors.success,
-              fontSize: '14px',
-              lineHeight: '1.6'
-            }}>
-              <strong>Recommendation</strong>
-              <p style={{ marginTop: THEME.spacing.md, marginBottom: 0 }}>
-                {results.grid_recommendation ||
-                  results.combined_advisory ||
-                  results.sustainability_recommendation}
-              </p>
-            </div>
-          </Card>
-
           <div style={whatIfStyles.comparisonGrid}>
             <Card>
               <h4 style={{ fontWeight: '600', marginBottom: THEME.spacing.md, fontSize: '14px', color: THEME.colors.text.secondary }}>Original Loads</h4>
@@ -241,14 +255,6 @@ export default function WhatIf() {
               <div style={{ fontSize: '12px', color: THEME.colors.text.secondary, lineHeight: '1.6' }}>
                 <div style={{ marginBottom: THEME.spacing.sm }}>Peak Load: <strong>{results.original_stress?.max_load?.toLocaleString()} KW</strong></div>
                 <div style={{ marginBottom: THEME.spacing.sm }}>Grid Stress: <strong>{results.original_stress?.combined_stress?.toFixed(1)}%</strong></div>
-                {results.original_stress?.max_ramp_rate_kw_per_10min != null && (
-                  <div style={{ marginBottom: THEME.spacing.sm }}>
-                    Ramp Rate:{' '}
-                    <strong>
-                      {results.original_stress.max_ramp_rate_kw_per_10min.toLocaleString()} KW/10min
-                    </strong>
-                  </div>
-                )}
               </div>
             </Card>
 
@@ -268,15 +274,6 @@ export default function WhatIf() {
               <div style={{ fontSize: '12px', color: THEME.colors.text.secondary, lineHeight: '1.6' }}>
                 <div style={{ marginBottom: THEME.spacing.sm }}>Peak Load: <strong>{results.new_stress_after_shift?.max_load?.toLocaleString()} KW</strong></div>
                 <div style={{ marginBottom: THEME.spacing.sm }}>Grid Stress: <strong>{results.new_stress_after_shift?.combined_stress?.toFixed(1)}%</strong></div>
-                {results.new_stress_after_shift?.max_ramp_rate_kw_per_10min != null && (
-                  <div style={{ marginBottom: THEME.spacing.sm }}>
-                    Ramp Rate:{' '}
-                    <strong>
-                      {results.new_stress_after_shift.max_ramp_rate_kw_per_10min.toLocaleString()}{' '}
-                      KW/10min
-                    </strong>
-                  </div>
-                )}
               </div>
             </Card>
           </div>
@@ -350,6 +347,60 @@ export default function WhatIf() {
               <div style={{ fontSize: '11px', color: THEME.colors.text.secondary, marginTop: THEME.spacing.md, fontStyle: 'italic', lineHeight: '1.4' }}>
                 {results.sustainability_metrics?.message}
               </div>
+              {results.best_solar_hour_name && (
+                <div style={{ marginTop: THEME.spacing.md, fontSize: '12px', color: THEME.colors.text.secondary }}>
+                  Best solar target for this slider value:{' '}
+                  <strong style={{ color: THEME.colors.accent.lighter }}>
+                    {results.best_solar_hour_name}
+                  </strong>{' '}
+                  ({results.best_solar_hour}:00) • projected target stress:{' '}
+                  <strong style={{ color: THEME.colors.text.primary }}>
+                    {results.projected_target_stress_pct?.toFixed(1)}%
+                  </strong>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {results.solar_shift_analysis?.all_options?.length > 0 && (
+            <Card style={whatIfStyles.fullWidth}>
+              <h4 style={{ fontWeight: '600', marginBottom: THEME.spacing.lg, display: 'flex', alignItems: 'center', gap: THEME.spacing.md }}>
+                <TrendingDown size={18} color={THEME.colors.accent.primary} />
+                Solar Window Tradeoff (10 AM-4 PM)
+              </h4>
+              <div style={{ fontSize: '12px', color: THEME.colors.text.secondary, marginBottom: THEME.spacing.md, lineHeight: 1.5 }}>
+                Source hour: <strong>{results.solar_shift_analysis.source_hour_name}</strong>. The table compares every peak-solar target hour for the selected shift percentage.
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ color: THEME.colors.text.secondary }}>
+                      <th style={tableHeadStyle}>Target Hour</th>
+                      <th style={tableHeadStyle}>CO₂ Saved</th>
+                      <th style={tableHeadStyle}>Reduction</th>
+                      <th style={tableHeadStyle}>Projected Target Stress</th>
+                      <th style={tableHeadStyle}>Risk Band</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.solar_shift_analysis.all_options.map((opt) => {
+                      const best = opt.shifted_hour === results.best_solar_hour
+                      const risk = classifyStress(opt.projected_target_stress_pct)
+                      return (
+                        <tr key={opt.shifted_hour} style={{ borderTop: `1px solid ${THEME.colors.border.secondary}` }}>
+                          <td style={{ ...tableCellStyle, color: best ? THEME.colors.accent.lighter : THEME.colors.text.primary, fontWeight: best ? 700 : 500 }}>
+                            {opt.shifted_hour_name}{best ? ' (best)' : ''}
+                          </td>
+                          <td style={tableCellStyle}>{opt.co2_saved_kg.toFixed(2)} kg</td>
+                          <td style={tableCellStyle}>{opt.percentage_reduction.toFixed(1)}%</td>
+                          <td style={tableCellStyle}>{opt.projected_target_stress_pct.toFixed(1)}%</td>
+                          <td style={{ ...tableCellStyle, color: stressBandColor(risk) }}>{risk}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </Card>
           )}
 
@@ -369,4 +420,31 @@ function getStatusColor(status) {
   if (status?.includes('HIGH')) return THEME.colors.warning
   if (status?.includes('MODERATE')) return THEME.colors.warning
   return THEME.colors.success
+}
+
+function classifyStress(stressPct) {
+  if (stressPct >= 95) return 'CRITICAL'
+  if (stressPct >= 85) return 'HIGH'
+  if (stressPct >= 70) return 'CAUTION'
+  return 'SAFE'
+}
+
+function stressBandColor(band) {
+  if (band === 'CRITICAL') return THEME.colors.error
+  if (band === 'HIGH') return THEME.colors.warning
+  if (band === 'CAUTION') return THEME.colors.warning
+  return THEME.colors.success
+}
+
+const tableHeadStyle = {
+  textAlign: 'left',
+  padding: '10px 8px',
+  borderBottom: `1px solid ${THEME.colors.border.primary}`,
+  fontWeight: 600,
+  letterSpacing: '0.02em',
+}
+
+const tableCellStyle = {
+  padding: '10px 8px',
+  color: THEME.colors.text.secondary,
 }

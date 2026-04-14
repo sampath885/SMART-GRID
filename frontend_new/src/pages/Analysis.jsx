@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Card from '../components/Card'
 import AnalysisSafetyEnvelope from '../components/AnalysisSafetyEnvelope'
 import AnalysisXaiRadar from '../components/AnalysisXaiRadar'
-import { AlertCircle, TrendingUp, Zap, Leaf } from 'lucide-react'
+import { AlertCircle, TrendingUp, Zap } from 'lucide-react'
 import { useGridData } from '../context/GridDataContext'
 import { THEME } from '../theme'
 
@@ -126,25 +126,6 @@ export default function Analysis() {
         </div>
       </Card> */}
 
-      {/* Sustainability Card - ACTIVE */}
-      <Card>
-        <h3 style={{ fontWeight: '600', marginBottom: THEME.spacing.md, display: 'flex', alignItems: 'center', gap: THEME.spacing.md }}>
-          <Leaf size={20} color={THEME.colors.success} />
-          Sustainability Impact
-        </h3>
-        <div style={{ fontSize: '18px', fontWeight: '700', color: THEME.colors.success, marginBottom: THEME.spacing.md }}>
-          {analysisData.sustainability_score}% Score
-        </div>
-        <div style={{ fontSize: '12px', color: THEME.colors.text.secondary, lineHeight: '1.6' }}>
-          <div style={{ marginBottom: THEME.spacing.sm }}><strong>CO₂ Savings:</strong> {analysisData.co2_saved_kg?.toFixed(2)} kg</div>
-          <div style={{ marginBottom: THEME.spacing.sm }}><strong>Reduction:</strong> {analysisData.percentage_reduction?.toFixed(1)}%</div>
-          <div style={{ marginBottom: THEME.spacing.sm }}>{analysisData.environmental_impact}</div>
-          <div style={{ fontStyle: 'italic', color: THEME.colors.text.secondary, fontSize: '11px', marginTop: THEME.spacing.sm }}>
-            {analysisData.sustainability_impact}
-          </div>
-        </div>
-      </Card>
-
       {/* Thermal SOA + XAI radar */}
       {(analysisData.safety_envelope || analysisData.xai_radar) && (
         <div style={analysisStyles.chartsRow}>
@@ -189,25 +170,6 @@ export default function Analysis() {
               (see chart above).
             </div>
           )}
-        </div>
-      </Card>
-
-      {/* Advisory */}
-      <Card style={analysisStyles.fullWidth}>
-        <h3 style={{ fontWeight: '600', marginBottom: THEME.spacing.md }}>Prescriptive Advisory</h3>
-        <div style={{ 
-          background: `rgba(16, 185, 129, 0.1)`,
-          border: `1px solid ${THEME.colors.success}`,
-          borderRadius: '8px',
-          padding: THEME.spacing.lg,
-          color: THEME.colors.text.primary,
-          fontSize: '14px',
-          lineHeight: '1.8'
-        }}>
-          <strong style={{ color: THEME.colors.success }}>💡 Recommendation:</strong>
-          <p style={{ marginTop: THEME.spacing.md, marginBottom: 0 }}>
-            {analysisData.advisory}
-          </p>
         </div>
       </Card>
 

@@ -8,6 +8,79 @@ from sklearn.ensemble import IsolationForest
 # Calibrated to the prior demo anchor (~2,000 kW vs 90,000 kW usable at default 100 MW nameplate).
 RAMP_FRACTION_FOR_SEVERITY_CAP = 2000.0 / (100000.0 * 0.9)
 
+# Default fallback weights (legacy behavior)
+DEFAULT_STRESS_WEIGHTS = {
+    "peak": 0.50,
+    "avg": 0.30,
+    "ramp": 0.20,
+}
+
+
+def temperature_derated_usable_capacity_kw(
+    capacity: float,
+    temperature_c: float | None,
+    ref_c: float = 22.0,
+    loss_per_degree: float = 0.008,
+    floor_ratio: float = 0.62,
+) -> float:
+    """
+    Convert nameplate capacity to usable capacity and apply simple thermal derating.
+    If temperature is None, return standard 90% usable capacity.
+    """
+    usable = float(capacity) * 0.90
+    if temperature_c is None:
+        return usable
+    penalty = max(0.0, float(temperature_c) - ref_c) * loss_per_degree
+    return usable * max(floor_ratio, 1.0 - penalty)
+
+
+def calibrate_stress_weights(historical_total_loads: List[float]) -> Dict:
+    """
+    Data-calibrated stress weights based on historical load shape and volatility.
+    Returns normalized weights for peak / average / ramp components.
+    """
+    if not historical_total_loads or len(historical_total_loads) < 20:
+        return DEFAULT_STRESS_WEIGHTS.copy()
+
+    series = np.array(historical_total_loads, dtype=float)
+    p5, p50, p95 = np.percentile(series, [5, 50, 95])
+    if p50 <= 0:
+        return DEFAULT_STRESS_WEIGHTS.copy()
+
+    ramp_series = np.abs(np.diff(series))
+    ramp_p95 = float(np.percentile(ramp_series, 95)) if len(ramp_series) else 0.0
+
+    # Pressure indicators (dimensionless)
+    peak_pressure = max(0.0, (p95 - p50) / p50)
+    baseline_pressure = max(0.0, (p50 - p5) / p50)
+    ramp_pressure = max(0.0, ramp_p95 / p50)
+
+    # Convert indicators into raw weights (scaled to keep components balanced).
+    peak_raw = 1.0 + (2.0 * peak_pressure)
+    avg_raw = 0.8 + (1.5 * baseline_pressure)
+    ramp_raw = 0.6 + (6.0 * ramp_pressure)
+
+    total_raw = peak_raw + avg_raw + ramp_raw
+    if total_raw <= 0:
+        return DEFAULT_STRESS_WEIGHTS.copy()
+
+    weights = {
+        "peak": peak_raw / total_raw,
+        "avg": avg_raw / total_raw,
+        "ramp": ramp_raw / total_raw,
+    }
+
+    # Clamp to avoid pathological weight collapse, then renormalize.
+    weights["peak"] = min(0.65, max(0.20, weights["peak"]))
+    weights["avg"] = min(0.55, max(0.15, weights["avg"]))
+    weights["ramp"] = min(0.45, max(0.10, weights["ramp"]))
+    norm = weights["peak"] + weights["avg"] + weights["ramp"]
+    return {
+        "peak": float(round(weights["peak"] / norm, 4)),
+        "avg": float(round(weights["avg"] / norm, 4)),
+        "ramp": float(round(weights["ramp"] / norm, 4)),
+    }
+
 def recursive_forecast_24h(
     model, 
     latest_data: Dict,
@@ -160,7 +233,12 @@ def apply_whatif_scenario(
     return adjusted
 
 
-def calculate_grid_stress(loads: List[float], capacity: float = 100000) -> Dict:
+def calculate_grid_stress(
+    loads: List[float],
+    capacity: float = 100000,
+    temperature_c: float | None = None,
+    stress_weights: Dict | None = None,
+) -> Dict:
     """
     ===================================
     REFINED GRID STRESS WITH RAMP-RATE ANALYSIS
@@ -183,6 +261,8 @@ def calculate_grid_stress(loads: List[float], capacity: float = 100000) -> Dict:
     Args:
         loads: List of predicted loads (KW), typically at 10-min intervals
         capacity: Grid capacity in KW (default 100,000 KW)
+        temperature_c: Optional ambient temperature for thermal derating of usable capacity
+        stress_weights: Optional dict with keys peak/avg/ramp that sum ~1.0
     
     Returns:
         Dictionary with comprehensive stress metrics including ramp-rate analysis
@@ -191,7 +271,8 @@ def calculate_grid_stress(loads: List[float], capacity: float = 100000) -> Dict:
     max_load = max(loads)
     avg_load = np.mean(loads)
     min_load = min(loads)
-    available_capacity = capacity * 0.90
+    available_capacity = temperature_derated_usable_capacity_kw(capacity, temperature_c)
+    weights = stress_weights or DEFAULT_STRESS_WEIGHTS
     
     # ========== LEGACY METHOD (COMMENTED) ==========
     # # Apply 10% reserve buffer (only 90% of capacity is usable)
@@ -225,11 +306,11 @@ def calculate_grid_stress(loads: List[float], capacity: float = 100000) -> Dict:
     peak_stress = (max_load / available_capacity) * 100 if available_capacity > 0 else 0
     avg_stress = (avg_load / available_capacity) * 100 if available_capacity > 0 else 0
     
-    # Combined Stress with Ramp-Rate Integration
-    # Weight: 50% peak capacity, 30% average baseline, 20% ramp volatility
-    combined_stress = (0.50 * min(peak_stress, 100)) + \
-                      (0.30 * min(avg_stress, 100)) + \
-                      (0.20 * ramp_severity)
+    # Combined Stress with calibrated integration:
+    # peak capacity + average baseline + ramp volatility.
+    combined_stress = (weights["peak"] * min(peak_stress, 100)) + \
+                      (weights["avg"] * min(avg_stress, 100)) + \
+                      (weights["ramp"] * ramp_severity)
     
     # Status uses normalized ramp severity (aligned with former ~1.0 / ~1.5 MW thresholds at 90 MW usable)
     if combined_stress > 85:
@@ -267,7 +348,9 @@ def calculate_grid_stress(loads: List[float], capacity: float = 100000) -> Dict:
         'combined_stress': round(combined_stress, 2),
         'status': status,
         'capacity': capacity,
-        'available_capacity': round(available_capacity, 2)
+        'available_capacity': round(available_capacity, 2),
+        'temperature_c': round(float(temperature_c), 2) if temperature_c is not None else None,
+        'stress_weights': weights,
     }
 
 

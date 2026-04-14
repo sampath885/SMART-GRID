@@ -3,9 +3,23 @@
  * loads: values in kW
  */
 const RAMP_FRACTION_FOR_SEVERITY_CAP = 2000 / (100000 * 0.9)
+const DEFAULT_WEIGHTS = { peak: 0.5, avg: 0.3, ramp: 0.2 }
 
-export function calculateGridStressForLoads(loads, capacity = 100000) {
+function deratedUsableCapacity(capacity, temperatureC) {
+  const usable = capacity * 0.9
+  if (temperatureC == null) return usable
+  const refC = 22
+  const lossPerDegree = 0.008
+  const floorRatio = 0.62
+  const penalty = Math.max(0, Number(temperatureC) - refC) * lossPerDegree
+  return usable * Math.max(floorRatio, 1 - penalty)
+}
+
+export function calculateGridStressForLoads(loads, options = {}) {
   if (!loads?.length) return null
+  const capacity = options.capacity ?? 100000
+  const temperatureC = options.temperatureC
+  const stressWeights = options.stressWeights ?? DEFAULT_WEIGHTS
 
   const maxLoad = Math.max(...loads)
   const avgLoad = loads.reduce((a, b) => a + b, 0) / loads.length
@@ -20,7 +34,7 @@ export function calculateGridStressForLoads(loads, capacity = 100000) {
     ? rampRates.reduce((a, b) => a + b, 0) / rampRates.length
     : 0
 
-  const availableCapacity = capacity * 0.9
+  const availableCapacity = deratedUsableCapacity(capacity, temperatureC)
   let rampFraction = 0
   let rampSeverity = 0
   if (availableCapacity > 0) {
@@ -35,9 +49,9 @@ export function calculateGridStressForLoads(loads, capacity = 100000) {
   const avgStress = availableCapacity > 0 ? (avgLoad / availableCapacity) * 100 : 0
 
   const combinedStress =
-    0.5 * Math.min(peakStress, 100) +
-    0.3 * Math.min(avgStress, 100) +
-    0.2 * rampSeverity
+    stressWeights.peak * Math.min(peakStress, 100) +
+    stressWeights.avg * Math.min(avgStress, 100) +
+    stressWeights.ramp * rampSeverity
 
   let status = 'SAFE'
   if (combinedStress > 85) {
@@ -67,6 +81,8 @@ export function calculateGridStressForLoads(loads, capacity = 100000) {
     status,
     capacity,
     available_capacity: availableCapacity,
+    temperature_c: temperatureC ?? null,
+    stress_weights: stressWeights,
   }
 }
 

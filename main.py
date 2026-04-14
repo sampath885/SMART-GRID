@@ -12,6 +12,8 @@ from app.forecasting import (
     recursive_forecast_24h, 
     apply_whatif_scenario, 
     calculate_grid_stress, 
+    calibrate_stress_weights,
+    temperature_derated_usable_capacity_kw,
     calculate_sustainability_score,  # NEW: Time-of-use sustainability
     optimize_load_shift_autonomous,  # NEW: Auto-pilot optimizer
     detect_anomalies, 
@@ -40,6 +42,128 @@ except:
 latest_df = None
 latest_input_features = None
 latest_threshold = None
+
+
+def get_historical_total_loads(df: pd.DataFrame) -> list[float]:
+    """Return historical total-load series used for stress-weight calibration."""
+    total = df["residential_load"] + df["datacenter_load"] + df["industrial_load"]
+    return [float(v) for v in total.tolist()]
+
+
+def evaluate_peak_solar_shift_options(
+    load_shifted_kw: float,
+    source_hour: int,
+    forecast_predictions: list[float],
+    temperature_c: float | None = None,
+    capacity: float = 100000,
+) -> dict:
+    """
+    Evaluate candidate peak-solar transfer hours (10 AM-4 PM) and choose
+    the best balance of CO2 savings and projected source/target hour stress.
+    """
+    solar_hours = list(range(10, 17))  # 10 AM through 4 PM
+    available_capacity = temperature_derated_usable_capacity_kw(capacity, temperature_c)
+    options = []
+
+    for shifted_hour in solar_hours:
+        sustainability = calculate_sustainability_score(
+            load_shifted_kw=load_shifted_kw,
+            original_hour=source_hour,
+            shifted_hour=shifted_hour,
+            duration_hours=1,
+        )
+
+        # Map absolute clock hour to the corresponding block in the 24h forecast
+        # where block 0 is source_hour and each block contains 6x10-min points.
+        hour_offset = (shifted_hour - source_hour) % 24
+        start_idx = hour_offset * 6
+        end_idx = start_idx + 6
+        target_slice = forecast_predictions[start_idx:end_idx]
+
+        baseline_target_avg_kw = (
+            float(np.mean(target_slice)) if len(target_slice) == 6 else float(np.mean(forecast_predictions))
+        )
+        baseline_source_slice = forecast_predictions[0:6]
+        baseline_source_avg_kw = (
+            float(np.mean(baseline_source_slice))
+            if len(baseline_source_slice) == 6
+            else float(np.mean(forecast_predictions))
+        )
+
+        projected_source_avg_kw = max(0.0, baseline_source_avg_kw - float(load_shifted_kw))
+        projected_target_avg_kw = baseline_target_avg_kw + float(load_shifted_kw)
+        projected_system_peak_kw = max(projected_source_avg_kw, projected_target_avg_kw)
+
+        projected_source_stress_pct = (
+            (projected_source_avg_kw / available_capacity) * 100 if available_capacity > 0 else 0.0
+        )
+        projected_target_stress_pct = (
+            (projected_target_avg_kw / available_capacity) * 100 if available_capacity > 0 else 0.0
+        )
+        projected_peak_stress_pct = (
+            (projected_system_peak_kw / available_capacity) * 100 if available_capacity > 0 else 0.0
+        )
+
+        # Effective reduction versus the whole source-hour block (not just shifted slice).
+        # This makes slider percentage visibly affect reduction/score in What-If.
+        source_emission_factor = float(sustainability["original_emission_factor"])
+        source_block_emissions_kg = baseline_source_avg_kw * source_emission_factor
+        effective_reduction_pct = (
+            (float(sustainability["co2_saved_kg"]) / source_block_emissions_kg) * 100
+            if source_block_emissions_kg > 0
+            else 0.0
+        )
+        effective_sustainability_score = min(100.0, max(0.0, 50.0 + (effective_reduction_pct / 2.0)))
+
+        # Penalize hours that push either source or target block above ~90% usable headroom.
+        risk_penalty = max(
+            0.0,
+            max(projected_target_stress_pct, projected_source_stress_pct, projected_peak_stress_pct) - 90.0,
+        ) * 10.0
+        optimization_score = float(sustainability["co2_saved_kg"]) - risk_penalty
+
+        options.append(
+            {
+                "shifted_hour": int(shifted_hour),
+                "shifted_hour_name": sustainability["shifted_hour_name"],
+                "co2_saved_kg": float(sustainability["co2_saved_kg"]),
+                "percentage_reduction": round(effective_reduction_pct, 2),
+                "sustainability_score": round(effective_sustainability_score, 2),
+                "shifted_load_reduction_pct": float(sustainability["percentage_reduction"]),
+                "environmental_impact": sustainability["environmental_impact"],
+                "message": (
+                    f"Shifting {round(load_shifted_kw, 2)} KW from "
+                    f"{sustainability['original_hour_name']} to {sustainability['shifted_hour_name']} "
+                    f"saves {round(float(sustainability['co2_saved_kg']), 2)} kg CO2."
+                ),
+                "baseline_source_avg_kw": round(baseline_source_avg_kw, 2),
+                "baseline_target_avg_kw": round(baseline_target_avg_kw, 2),
+                "projected_source_avg_kw": round(projected_source_avg_kw, 2),
+                "projected_target_avg_kw": round(projected_target_avg_kw, 2),
+                "projected_source_stress_pct": round(projected_source_stress_pct, 2),
+                "projected_target_stress_pct": round(projected_target_stress_pct, 2),
+                "projected_peak_stress_pct": round(projected_peak_stress_pct, 2),
+                "optimization_score": round(optimization_score, 3),
+            }
+        )
+
+    best_option = max(
+        options,
+        key=lambda x: (x["optimization_score"], x["co2_saved_kg"], -x["projected_target_stress_pct"]),
+    )
+
+    return {
+        "source_hour": int(source_hour),
+        "source_hour_name": calculate_sustainability_score(
+            load_shifted_kw=0,
+            original_hour=source_hour,
+            shifted_hour=source_hour,
+            duration_hours=1,
+        )["original_hour_name"],
+        "candidate_hours": solar_hours,
+        "best_option": best_option,
+        "all_options": options,
+    }
 
 
 @app.get("/")
@@ -114,15 +238,36 @@ async def predict_and_advise(file: UploadFile = File(...)):
         else:
             advisory = "ALERT: Predicted peak due to historical trend. Shift non-critical backups to 2 AM."
 
-    # 5. DYNAMIC SUSTAINABILITY SCORECARD (WITH TIME-OF-USE CARBON INTENSITY)
-    # Calculate CO2 impact if load is shifted from current hour to optimal solar window (2 PM)
-    datacenter_current = latest_df.iloc[-1]['datacenter_load']
-    sustainability = calculate_sustainability_score(
-        load_shifted_kw=datacenter_current,
-        original_hour=hour,
-        shifted_hour=14,  # 2 PM - peak solar window
-        duration_hours=1
+    # 5. DYNAMIC SUSTAINABILITY SCORECARD (SOURCE = NEXT HOUR, TARGET = BEST SOLAR HOUR)
+    datacenter_current = float(latest_df.iloc[-1]['datacenter_load'])
+
+    latest_state = {
+        'Temperature': latest_data['Temperature'],
+        'Humidity': latest_data['Humidity'],
+        'hour': hour,
+        'day_of_week': datetime_val.dayofweek,
+        'month': datetime_val.month,
+        'day_of_month': datetime_val.day,
+        'residential_lag_1h': df.iloc[-6]['residential_load'] if len(df) >= 6 else latest_data['residential_load'],
+        'residential_lag_2h': df.iloc[-12]['residential_load'] if len(df) >= 12 else latest_data['residential_load'],
+        'datacenter_lag_1h': df.iloc[-6]['datacenter_load'] if len(df) >= 6 else latest_data['datacenter_load'],
+        'datacenter_lag_2h': df.iloc[-12]['datacenter_load'] if len(df) >= 12 else latest_data['datacenter_load'],
+        'industrial_lag_1h': df.iloc[-6]['industrial_load'] if len(df) >= 6 else latest_data['industrial_load'],
+    }
+    forecast_24h_predictions = recursive_forecast_24h(
+        model=model,
+        latest_data=latest_state,
+        feature_names=feature_names,
+        steps=144,
     )
+    source_hour = (hour + 1) % 24  # Sustainability context aligns with next-hour prediction window
+    sustainability_eval = evaluate_peak_solar_shift_options(
+        load_shifted_kw=datacenter_current,
+        source_hour=source_hour,
+        forecast_predictions=forecast_24h_predictions,
+        temperature_c=current_temp_c,
+    )
+    sustainability = sustainability_eval["best_option"]
 
     return {
         "prediction_next_hour_kw": round(prediction, 2),
@@ -135,6 +280,12 @@ async def predict_and_advise(file: UploadFile = File(...)):
         "sustainability_score": sustainability['sustainability_score'],
         "environmental_impact": sustainability['environmental_impact'],
         "percentage_reduction": sustainability['percentage_reduction'],
+        "sustainability_source_hour": sustainability_eval["source_hour"],
+        "sustainability_source_hour_name": sustainability_eval["source_hour_name"],
+        "sustainability_best_shift_hour": sustainability["shifted_hour"],
+        "sustainability_best_shift_hour_name": sustainability["shifted_hour_name"],
+        "sustainability_projected_target_stress_pct": sustainability["projected_target_stress_pct"],
+        "sustainability_options_solar_window": sustainability_eval["all_options"],
         # Analysis visualizations (thermal SOA + grouped XAI)
         "safety_envelope": safety_envelope,
         "xai_radar": xai_radar,
@@ -175,18 +326,52 @@ def what_if_scenario(shift_percentage: float = 0):
     load_to_shift = current_datacenter_load * (shift_percentage / 100)
     adjusted_prediction = baseline_prediction - load_to_shift
     
-    # Calculate stress for both scenarios
-    original_stress = calculate_grid_stress([baseline_prediction])
-    new_stress_after_shift = calculate_grid_stress([adjusted_prediction])
-    
-    # Calculate sustainability impact with time-of-use carbon intensity
-    current_hour = pd.to_datetime(latest_df.iloc[-1]['Datetime']).hour
-    sustainability = calculate_sustainability_score(
-        load_shifted_kw=load_to_shift,
-        original_hour=current_hour,
-        shifted_hour=14,  # Shift to 2 PM (peak solar window)
-        duration_hours=1
+    # Calculate stress for both scenarios with temperature-derated capacity + calibrated weights
+    current_temp_c = float(latest_df.iloc[-1]["Temperature"])
+    calibrated_weights = calibrate_stress_weights(get_historical_total_loads(latest_df))
+    original_stress = calculate_grid_stress(
+        [baseline_prediction],
+        temperature_c=current_temp_c,
+        stress_weights=calibrated_weights,
     )
+    new_stress_after_shift = calculate_grid_stress(
+        [adjusted_prediction],
+        temperature_c=current_temp_c,
+        stress_weights=calibrated_weights,
+    )
+    
+    # Build recursive forecast context so we can evaluate every peak-solar hour (10 AM-4 PM)
+    latest_data = latest_df.iloc[-1]
+    datetime_val = pd.to_datetime(latest_data['Datetime'])
+    current_hour = datetime_val.hour
+    latest_state = {
+        'Temperature': latest_data['Temperature'],
+        'Humidity': latest_data['Humidity'],
+        'hour': current_hour,
+        'day_of_week': datetime_val.dayofweek,
+        'month': datetime_val.month,
+        'day_of_month': datetime_val.day,
+        'residential_lag_1h': latest_df.iloc[-6]['residential_load'] if len(latest_df) >= 6 else latest_data['residential_load'],
+        'residential_lag_2h': latest_df.iloc[-12]['residential_load'] if len(latest_df) >= 12 else latest_data['residential_load'],
+        'datacenter_lag_1h': latest_df.iloc[-6]['datacenter_load'] if len(latest_df) >= 6 else latest_data['datacenter_load'],
+        'datacenter_lag_2h': latest_df.iloc[-12]['datacenter_load'] if len(latest_df) >= 12 else latest_data['datacenter_load'],
+        'industrial_lag_1h': latest_df.iloc[-6]['industrial_load'] if len(latest_df) >= 6 else latest_data['industrial_load'],
+    }
+    forecast_24h_predictions = recursive_forecast_24h(
+        model=model,
+        latest_data=latest_state,
+        feature_names=feature_names,
+        steps=144,
+    )
+
+    source_hour = (current_hour + 1) % 24
+    sustainability_eval = evaluate_peak_solar_shift_options(
+        load_shifted_kw=float(load_to_shift),
+        source_hour=source_hour,
+        forecast_predictions=forecast_24h_predictions,
+        temperature_c=current_temp_c,
+    )
+    best_solar_option = sustainability_eval["best_option"]
     
     return {
         # === GRID STRESS ANALYSIS ===
@@ -201,17 +386,25 @@ def what_if_scenario(shift_percentage: float = 0):
         
         # === NEW: SUSTAINABILITY IMPACT ===
         "sustainability_metrics": {
-            "co2_saved_kg": sustainability['co2_saved_kg'],
-            "percentage_reduction": sustainability['percentage_reduction'],
-            "sustainability_score": sustainability['sustainability_score'],
-            "environmental_impact": sustainability['environmental_impact'],
-            "message": sustainability['message']
+            "co2_saved_kg": best_solar_option['co2_saved_kg'],
+            "percentage_reduction": best_solar_option['percentage_reduction'],
+            "sustainability_score": best_solar_option['sustainability_score'],
+            "environmental_impact": best_solar_option['environmental_impact'],
+            "message": best_solar_option['message']
         },
+        "solar_shift_analysis": sustainability_eval,
+        "best_solar_hour": best_solar_option["shifted_hour"],
+        "best_solar_hour_name": best_solar_option["shifted_hour_name"],
+        "projected_target_stress_pct": best_solar_option["projected_target_stress_pct"],
         
         # === RECOMMENDATIONS ===
         "grid_recommendation": f"Shifting {shift_percentage}% of data center load ({round(load_to_shift, 2)} KW) would change grid stress from {original_stress['status']} to {new_stress_after_shift['status']}",
-        "sustainability_recommendation": sustainability['message'],
-        "combined_advisory": f"✅ Shift {shift_percentage}% to 2 PM solar window: Stress {new_stress_after_shift['status']}, CO2 Reduction {sustainability['percentage_reduction']}%"
+        "sustainability_recommendation": best_solar_option['message'],
+        "combined_advisory": (
+            f"✅ Shift {shift_percentage}% toward {best_solar_option['shifted_hour_name']}: "
+            f"Projected target stress {best_solar_option['projected_target_stress_pct']}%, "
+            f"CO2 reduction {best_solar_option['percentage_reduction']}%"
+        ),
     }
 
 
@@ -262,8 +455,13 @@ def forecast_24h():
     # Round predictions for consistency (BEFORE calculating metrics)
     forecast_24h_rounded = [round(p, 2) for p in forecast_24h_predictions]
     
-    # Calculate stress metrics on ROUNDED values (so they match frontend display)
-    stress_metrics = calculate_grid_stress(forecast_24h_rounded)
+    # Calculate stress metrics on rounded values with thermal derating and calibrated weights.
+    calibrated_weights = calibrate_stress_weights(get_historical_total_loads(latest_df))
+    stress_metrics = calculate_grid_stress(
+        forecast_24h_rounded,
+        temperature_c=float(latest_data["Temperature"]),
+        stress_weights=calibrated_weights,
+    )
     
     # Detect anomalies in the forecast
     anomalies = detect_anomalies(forecast_24h_rounded)

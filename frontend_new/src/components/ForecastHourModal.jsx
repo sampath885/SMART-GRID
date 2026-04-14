@@ -18,8 +18,8 @@ function rampColor(score) {
 
 const slotLabels = ['+0 min', '+10 min', '+20 min', '+30 min', '+40 min', '+50 min']
 
-export default function ForecastHourModal({ hourIndex, loads, hourlyAverage, onClose }) {
-  const stress = loads?.length === 6 ? calculateGridStressForLoads(loads) : null
+export default function ForecastHourModal({ hourIndex, loads, hourlyAverage, stressConfig, onClose }) {
+  const stress = loads?.length === 6 ? calculateGridStressForLoads(loads, stressConfig || {}) : null
 
   useEffect(() => {
     const onKey = (e) => {
