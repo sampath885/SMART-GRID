@@ -91,16 +91,12 @@ export default function UploadWidget() {
     },
     uploadBox: {
       border: `2px dashed ${THEME.colors.border.primary}`,
-      borderRadius: '12px',
+      borderRadius: '16px',
       padding: THEME.spacing.xl,
       textAlign: 'center',
       cursor: 'pointer',
       transition: THEME.transitions.smooth,
-      background: `rgba(13, 148, 136, 0.03)`,
-      ':hover': {
-        borderColor: THEME.colors.accent.primary,
-        background: `rgba(13, 148, 136, 0.08)`,
-      },
+      background: 'rgba(59, 130, 246, 0.05)',
     },
     uploadIcon: {
       display: 'flex',
@@ -134,11 +130,11 @@ export default function UploadWidget() {
       transition: THEME.transitions.smooth,
     },
     primaryButton: {
-      background: THEME.colors.gradient.teal,
-      color: '#0a0e15',
+      background: THEME.colors.accent.primary,
+      color: '#EAF2FF',
     },
     secondaryButton: {
-      background: `rgba(13, 148, 136, 0.1)`,
+      background: `rgba(59, 130, 246, 0.12)`,
       color: THEME.colors.accent.primary,
       border: `1px solid ${THEME.colors.accent.primary}`,
     },
@@ -167,6 +163,14 @@ export default function UploadWidget() {
       <div 
         style={uploadStyles.uploadBox}
         onClick={() => fileInputRef.current?.click()}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = THEME.colors.accent.primary
+          e.currentTarget.style.background = 'rgba(59, 130, 246, 0.09)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = THEME.colors.border.primary
+          e.currentTarget.style.background = 'rgba(59, 130, 246, 0.05)'
+        }}
       >
         <div style={uploadStyles.uploadIcon}>
           <Upload size={32} color={THEME.colors.accent.primary} />
@@ -205,6 +209,13 @@ export default function UploadWidget() {
           style={{ ...uploadStyles.button, ...uploadStyles.primaryButton }}
           onClick={handleUpload}
           disabled={!selectedFile || loading}
+          onMouseEnter={(e) => {
+            if (!selectedFile || loading) return
+            e.currentTarget.style.filter = 'brightness(1.08)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.filter = 'none'
+          }}
         >
           {loading ? 'Analyzing...' : 'Analyze Data'}
         </button>

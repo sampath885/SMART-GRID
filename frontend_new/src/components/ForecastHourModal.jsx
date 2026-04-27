@@ -142,7 +142,7 @@ export default function ForecastHourModal({ hourIndex, loads, hourlyAverage, str
             <>
               <div
                 style={{
-                  background: 'rgba(13, 148, 136, 0.08)',
+                  background: 'rgba(59, 130, 246, 0.08)',
                   border: `1px solid ${THEME.colors.accent.primary}`,
                   borderRadius: '8px',
                   padding: THEME.spacing.md,

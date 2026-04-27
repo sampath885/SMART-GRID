@@ -122,7 +122,7 @@ const AnomalyDetection = ({ forecastData }) => {
           }}>
             {/* Teal Circle Background */}
             <svg width="180" height="180" style={{ position: 'absolute', top: 0, left: 0 }}>
-              <circle cx="90" cy="90" r="85" fill={THEME.colors.gradient.teal} />
+              <circle cx="90" cy="90" r="85" fill={THEME.colors.accent.primary} />
             </svg>
             
             {/* Text centered in circle */}
@@ -231,7 +231,7 @@ const AnomalyDetection = ({ forecastData }) => {
 
             {/* Explanation Box */}
             <div style={{
-              background: `rgba(13, 148, 136, 0.1)`,
+              background: `rgba(59, 130, 246, 0.1)`,
               border: `1px solid ${THEME.colors.accent.primary}`,
               borderRadius: '6px',
               padding: THEME.spacing.md,
@@ -429,7 +429,7 @@ const AnomalyDetection = ({ forecastData }) => {
       {/* Insights */}
       <Card style={{
         gridColumn: '1 / -1',
-        background: `linear-gradient(135deg, rgba(13, 148, 136, 0.08) 0%, rgba(20, 184, 166, 0.05) 100%)`,
+        background: `rgba(59, 130, 246, 0.08)`,
         borderLeft: `3px solid ${THEME.colors.accent.primary}`,
       }}>
         <h4 style={{

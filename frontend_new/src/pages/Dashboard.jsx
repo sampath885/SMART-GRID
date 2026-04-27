@@ -30,21 +30,22 @@ export default function Dashboard() {
       gridColumn: '1 / -1',
     },
     sectionTitle: {
-      fontSize: '18px',
-      fontWeight: '600',
+      fontSize: '19px',
+      fontWeight: '700',
       color: THEME.colors.text.primary,
       marginBottom: THEME.spacing.lg,
       marginTop: THEME.spacing.xl,
+      letterSpacing: '0.01em',
     },
   }
 
   return (
     <div style={dashboardStyles.container} className="fade-in">
       {/* Welcome Card */}
-      <Card style={{ gridColumn: '1 / -1' }}>
+      <Card style={{ gridColumn: '1 / -1', padding: '2.4rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
           <div>
-            <h2 style={{ fontSize: '28px', fontWeight: '700', marginBottom: THEME.spacing.md }}>
+            <h2 style={{ fontSize: '32px', fontWeight: '800', marginBottom: THEME.spacing.md, letterSpacing: '-0.02em' }}>
               Welcome Back
             </h2>
             <p style={{ color: THEME.colors.text.secondary, marginBottom: THEME.spacing.lg }}>
@@ -54,7 +55,8 @@ export default function Dashboard() {
           <div style={{
             padding: THEME.spacing.lg,
             borderRadius: '12px',
-            background: `rgba(13, 148, 136, 0.1)`,
+            background: 'rgba(59, 130, 246, 0.12)',
+            border: `1px solid ${THEME.colors.border.primary}`,
             display: 'flex',
             alignItems: 'center',
             gap: THEME.spacing.md,
@@ -157,9 +159,9 @@ export default function Dashboard() {
 function GuideItem({ title, description, step }) {
   return (
     <div style={{
-      background: `rgba(13, 148, 136, 0.05)`,
+      background: `rgba(59, 130, 246, 0.05)`,
       border: `1px solid ${THEME.colors.border.primary}`,
-      borderRadius: '12px',
+      borderRadius: '14px',
       padding: THEME.spacing.lg,
       display: 'flex',
       gap: THEME.spacing.lg,
@@ -168,11 +170,11 @@ function GuideItem({ title, description, step }) {
         width: '40px',
         height: '40px',
         borderRadius: '50%',
-        background: THEME.colors.gradient.teal,
+        background: THEME.colors.accent.primary,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#0a0e15',
+        color: '#EAF2FF',
         fontWeight: '700',
         flexShrink: 0,
       }}>

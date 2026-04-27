@@ -1,45 +1,45 @@
-// Dark Slate & Teal Professional Theme
+// Professional Midnight Slate Theme
 export const THEME = {
   colors: {
-    // Primary palette - Dark slate base
+    // Primary palette
     bg: {
-      primary: '#0a0e15',    // Deep dark slate
-      secondary: '#0f1419',  // Dark slate
-      tertiary: '#151b24',   // Medium dark slate
-      surface: '#1a2230',    // Surface slate
+      primary: '#0B1220',
+      secondary: '#111A2E',
+      tertiary: '#16233A',
+      surface: '#1B2A44',
     },
-    // Accent - Professional teal
+
     accent: {
-      primary: '#0d9488',    // Professional teal
-      light: '#14b8a6',      // Light teal
-      lighter: '#99f6e4',    // Pale teal
+      primary: '#3B82F6',
+      light: '#60A5FA',
+      lighter: '#BFDBFE',
     },
-    // Supporting colors
-    success: '#10b981',      // Emerald
-    warning: '#f59e0b',      // Amber
-    error: '#ef4444',        // Red
-    info: '#06b6d4',         // Cyan
-    
+
+    success: '#22C55E',
+    warning: '#F59E0B',
+    error: '#EF4444',
+    info: '#38BDF8',
+
     // Text
     text: {
-      primary: '#f5f5f7',    // Nearly white
-      secondary: '#a8aaaf',  // Muted
-      tertiary: '#6b7280',   // Dark muted
+      primary: '#E5EDF8',
+      secondary: '#A8B4C8',
+      tertiary: '#7E8DA8',
     },
-    
+
     // Borders
     border: {
-      primary: '#2a3540',
-      secondary: '#1f2937',
+      primary: '#253752',
+      secondary: '#1B2B43',
     },
-    
-    // Gradients
+
+    // Keep key names for compatibility; use solid professional tones.
     gradient: {
-      teal: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)',
-      slate: 'linear-gradient(135deg, #1a2230 0%, #0f1419 100%)',
+      teal: '#3B82F6',
+      slate: '#111A2E',
     }
   },
-  
+
   spacing: {
     xs: '0.25rem',
     sm: '0.5rem',
@@ -50,12 +50,12 @@ export const THEME = {
   },
   
   shadows: {
-    sm: '0 1px 2px 0 rgba(0, 0, 0, 0.3)',
-    md: '0 4px 12px 0 rgba(0, 0, 0, 0.4)',
-    lg: '0 12px 24px 0 rgba(0, 0, 0, 0.5)',
-    glow: '0 0 20px rgba(13, 148, 136, 0.15)',
+    sm: '0 1px 3px rgba(3, 8, 20, 0.35)',
+    md: '0 8px 20px rgba(3, 8, 20, 0.45)',
+    lg: '0 18px 42px rgba(3, 8, 20, 0.55)',
+    glow: '0 0 0 1px rgba(96, 165, 250, 0.18), 0 10px 30px rgba(59, 130, 246, 0.15)',
   },
-  
+
   transitions: {
     smooth: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
     fast: 'all 0.15s ease-out',

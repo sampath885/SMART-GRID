@@ -23,10 +23,11 @@ export default function MetricCard({ label, value, icon, trend, status = 'defaul
       justifyContent: 'space-between',
     },
     iconContainer: {
-      width: '44px',
-      height: '44px',
-      borderRadius: '12px',
-      background: `rgba(13, 148, 136, 0.1)`,
+      width: '46px',
+      height: '46px',
+      borderRadius: '14px',
+      background: 'rgba(59, 130, 246, 0.14)',
+      border: `1px solid ${THEME.colors.border.primary}`,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -40,10 +41,11 @@ export default function MetricCard({ label, value, icon, trend, status = 'defaul
       fontWeight: '500',
     },
     value: {
-      fontSize: '24px',
+      fontSize: '26px',
       fontWeight: '700',
       color: THEME.colors.text.primary,
       lineHeight: '1.2',
+      marginTop: '4px',
     },
     footer: {
       display: 'flex',

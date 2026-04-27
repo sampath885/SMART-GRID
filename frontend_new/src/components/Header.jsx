@@ -2,9 +2,16 @@ import React from 'react'
 import { THEME } from '../theme'
 
 export default function Header() {
+  const currentDate = new Date().toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+
   const headerStyles = {
     container: {
-      height: '70px',
+      height: '74px',
       backgroundColor: THEME.colors.bg.secondary,
       borderBottom: `1px solid ${THEME.colors.border.primary}`,
       display: 'flex',
@@ -12,6 +19,10 @@ export default function Header() {
       justifyContent: 'space-between',
       padding: `0 ${THEME.spacing.xl}`,
       boxShadow: THEME.shadows.sm,
+      position: 'sticky',
+      top: 0,
+      zIndex: 20,
+      backdropFilter: 'blur(8px)',
     },
     left: {
       display: 'flex',
@@ -19,9 +30,10 @@ export default function Header() {
       gap: THEME.spacing.xl,
     },
     title: {
-      fontSize: '20px',
-      fontWeight: '600',
+      fontSize: '21px',
+      fontWeight: '700',
       color: THEME.colors.text.primary,
+      letterSpacing: '0.01em',
     },
     status: {
       display: 'flex',
@@ -29,11 +41,12 @@ export default function Header() {
       gap: THEME.spacing.sm,
     },
     statusDot: {
-      width: '8px',
-      height: '8px',
+      width: '10px',
+      height: '10px',
       borderRadius: '50%',
       backgroundColor: THEME.colors.success,
-      animation: 'pulse 2s infinite',
+      animation: 'pulse 1.8s infinite',
+      boxShadow: `0 0 0 5px rgba(34, 197, 94, 0.15)`,
     },
     statusText: {
       fontSize: '12px',
@@ -44,7 +57,14 @@ export default function Header() {
     right: {
       display: 'flex',
       alignItems: 'center',
-      gap: THEME.spacing.lg,
+      gap: THEME.spacing.md,
+      padding: `${THEME.spacing.sm} ${THEME.spacing.md}`,
+      border: `1px solid ${THEME.colors.border.primary}`,
+      borderRadius: '10px',
+      color: THEME.colors.text.secondary,
+      fontSize: '12px',
+      letterSpacing: '0.04em',
+      textTransform: 'uppercase',
     },
   }
 
@@ -58,6 +78,7 @@ export default function Header() {
         </div>
       </div>
       <div style={headerStyles.right}>
+        {currentDate}
       </div>
     </div>
   )

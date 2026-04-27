@@ -29,7 +29,7 @@ function AppContent() {
     content: {
       flex: 1,
       overflow: 'auto',
-      padding: THEME.spacing.xl,
+      padding: `${THEME.spacing.xl} ${THEME.spacing['2xl']}`,
     },
   }
 

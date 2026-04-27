@@ -64,8 +64,8 @@ export default function Analysis() {
                   padding: `${THEME.spacing.md} ${THEME.spacing.lg}`,
                   borderRadius: '8px',
                   border: 'none',
-                  background: THEME.colors.gradient.teal,
-                  color: '#0a0e15',
+                  background: THEME.colors.accent.primary,
+                  color: '#EAF2FF',
                   fontWeight: '600',
                   cursor: 'pointer',
                   transition: THEME.transitions.smooth,
@@ -143,7 +143,7 @@ export default function Analysis() {
           AI Reason (Explainable AI)
         </h3>
         <div style={{ 
-          background: `rgba(13, 148, 136, 0.1)`,
+          background: `rgba(59, 130, 246, 0.1)`,
           border: `1px solid ${THEME.colors.accent.primary}`,
           borderRadius: '8px',
           padding: THEME.spacing.lg,
