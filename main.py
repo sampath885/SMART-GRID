@@ -7,6 +7,10 @@ import numpy as np
 import shutil
 import os
 from datetime import datetime
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.model_selection import train_test_split
 from app.data_loader import load_and_clean_data
 from app.forecasting import (
     recursive_forecast_24h, 
@@ -42,6 +46,14 @@ except:
 latest_df = None
 latest_input_features = None
 latest_threshold = None
+
+MODEL_COMPARISON_FEATURES = [
+    'Temperature', 'Humidity', 'hour', 'day_of_week', 'month', 'day_of_month',
+    'hour_sin', 'hour_cos',
+    'residential_lag_1h', 'residential_lag_2h',
+    'datacenter_lag_1h', 'datacenter_lag_2h', 'industrial_lag_1h',
+    'temp_rolling_3h', 'humidity_rolling_3h'
+]
 
 
 def get_historical_total_loads(df: pd.DataFrame) -> list[float]:
@@ -751,6 +763,111 @@ def get_full_audit_trail(limit: int = 50):
         "total_records": len(get_commitment_history(limit=1000)),
         "returned_records": len(get_commitment_history(limit=limit)),
         "audit_trail": get_commitment_history(limit=limit)
+    }
+
+
+@app.get("/api/model-comparison")
+def compare_models():
+    """
+    Compare three forecasting models on the latest uploaded dataset.
+    This endpoint is isolated from the production inference flow and does not
+    modify the live Random Forest model used by prediction endpoints.
+    """
+    csv_path = os.path.join("data", "processed_electricity_data.csv")
+    if not os.path.exists(csv_path):
+        return {"error": "Training dataset not found at data/processed_electricity_data.csv"}
+
+    # Use the exact same source dataset as app/model_trainer.py so Random Forest
+    # metrics match terminal training output.
+    df = pd.read_csv(csv_path)
+    if "Datetime" not in df.columns:
+        return {"error": "Datetime column missing from processed training dataset"}
+
+    df['Datetime'] = pd.to_datetime(df['Datetime'])
+    df['hour'] = df['Datetime'].dt.hour
+    df['day_of_week'] = df['Datetime'].dt.dayofweek
+    df['month'] = df['Datetime'].dt.month
+    df['day_of_month'] = df['Datetime'].dt.day
+    df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
+    df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
+    df['residential_lag_1h'] = df['residential_load'].shift(6)
+    df['residential_lag_2h'] = df['residential_load'].shift(12)
+    df['datacenter_lag_1h'] = df['datacenter_load'].shift(6)
+    df['datacenter_lag_2h'] = df['datacenter_load'].shift(12)
+    df['industrial_lag_1h'] = df['industrial_load'].shift(6)
+    df['temp_rolling_3h'] = df['Temperature'].rolling(18).mean()
+    df['humidity_rolling_3h'] = df['Humidity'].rolling(18).mean()
+    df = df.dropna().reset_index(drop=True)
+
+    if len(df) < 200:
+        return {"error": "Not enough records for reliable model comparison. Upload a larger dataset."}
+
+    X = df[MODEL_COMPARISON_FEATURES]
+    y = df['residential_load'] + df['datacenter_load'] + df['industrial_load']
+
+    # Match app/model_trainer.py evaluation path exactly for Random Forest parity.
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.2,
+        random_state=42,
+    )
+
+    models_to_compare = [
+        (
+            "Random Forest (Production Baseline)",
+            RandomForestRegressor(
+                n_estimators=100,
+                max_depth=20,
+                min_samples_split=10,
+                min_samples_leaf=5,
+                random_state=42,
+                n_jobs=-1,
+            ),
+        ),
+        (
+            "Gradient Boosting",
+            GradientBoostingRegressor(
+                n_estimators=80,
+                learning_rate=0.05,
+                max_depth=3,
+                random_state=42,
+            ),
+        ),
+        (
+            "Ridge Regression",
+            Ridge(alpha=2.0),
+        ),
+    ]
+
+    comparison_rows = []
+    for model_name, candidate in models_to_compare:
+        candidate.fit(X_train, y_train)
+        preds = candidate.predict(X_test)
+
+        rmse = float(np.sqrt(mean_squared_error(y_test, preds)))
+        mae = float(mean_absolute_error(y_test, preds))
+        y_safe = np.where(np.abs(y_test.values) < 1e-6, 1e-6, y_test.values)
+        mape = float(np.mean(np.abs((y_test.values - preds) / y_safe)) * 100)
+
+        comparison_rows.append(
+            {
+                "model": model_name,
+                "rmse_kw": round(rmse, 2),
+                "mae_kw": round(mae, 2),
+                "mape_pct": round(mape, 2),
+            }
+        )
+
+    comparison_rows = sorted(comparison_rows, key=lambda row: row["rmse_kw"])
+
+    return {
+        "dataset_rows_used": int(len(df)),
+        "train_rows": int(len(X_train)),
+        "test_rows": int(len(X_test)),
+        "split_method": "train_test_split_random_42",
+        "models": comparison_rows,
+        "note": "Model comparison is run separately and does not alter production model artifacts.",
     }
 
 

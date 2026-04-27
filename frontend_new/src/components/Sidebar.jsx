@@ -2,7 +2,7 @@ import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { 
   Home, BarChart3, TrendingUp, Zap, 
-  BookOpen, ChevronLeft, Cpu 
+  BrainCircuit, ChevronLeft, Cpu 
 } from 'lucide-react'
 import { THEME } from '../theme'
 
@@ -14,7 +14,7 @@ export default function Sidebar({ isOpen, onToggle }) {
     { path: '/analysis', label: 'Analysis', icon: BarChart3 },
     { path: '/forecast', label: '24h Forecast', icon: TrendingUp },
     { path: '/what-if', label: 'What-If', icon: Zap },
-    { path: '/api-docs', label: 'API Docs', icon: BookOpen },
+    { path: '/model-comparison', label: 'Model Comparison', icon: BrainCircuit },
   ]
 
   const sidebarStyles = {

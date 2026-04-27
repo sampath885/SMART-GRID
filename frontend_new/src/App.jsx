@@ -6,7 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Analysis from './pages/Analysis'
 import Forecast from './pages/Forecast'
 import WhatIf from './pages/WhatIf'
-import ApiDocs from './pages/ApiDocs'
+import ModelComparison from './pages/ApiDocs'
 import { THEME } from './theme'
 
 function AppContent() {
@@ -47,7 +47,8 @@ function AppContent() {
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/forecast" element={<Forecast />} />
             <Route path="/what-if" element={<WhatIf />} />
-            <Route path="/api-docs" element={<ApiDocs />} />
+            <Route path="/model-comparison" element={<ModelComparison />} />
+            <Route path="/api-docs" element={<ModelComparison />} />
           </Routes>
         </div>
       </div>

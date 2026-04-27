@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Card from '../components/Card'
 import CommitmentButton from '../components/CommitmentButton'
-import { Zap, Calendar, TrendingDown, Info } from 'lucide-react'
+import { Zap, Calendar, TrendingDown, Info, AlertTriangle } from 'lucide-react'
 import { useGridData } from '../context/GridDataContext'
 import { THEME } from '../theme'
 
@@ -17,6 +17,9 @@ export default function WhatIf() {
   )
   const [results, setResults] = useState(whatIfData)
   const [isSimulating, setIsSimulating] = useState(false)
+  const [showPreRunDialog, setShowPreRunDialog] = useState(false)
+  const [showRiskDialog, setShowRiskDialog] = useState(false)
+  const [riskDialogData, setRiskDialogData] = useState(null)
   /** Only reset results from context when a new file upload completes (lastUpdate changes), not on every render. */
   const syncedLastUpdateRef = useRef(null)
 
@@ -95,11 +98,43 @@ export default function WhatIf() {
         setShiftPercentage(applied)
         setPendingShiftPercentage(applied)
       }
+
+      const status = String(data?.new_stress_after_shift?.status || '').toUpperCase()
+      const projectedStress = Number(data?.projected_target_stress_pct)
+      const shouldWarn = (
+        status.includes('HIGH') ||
+        status.includes('CRITICAL') ||
+        (!Number.isNaN(projectedStress) && projectedStress >= 85)
+      )
+
+      if (shouldWarn) {
+        const suggestedMaxShift = data?.new_stress_after_shift?.combined_stress >= 95 ? 20 : 35
+        setRiskDialogData({
+          shiftPercentage: Number(data?.shift_percentage ?? pendingShiftPercentage),
+          projectedStress: Number(data?.new_stress_after_shift?.combined_stress ?? 0),
+          projectedTargetStress: Number.isNaN(projectedStress) ? null : projectedStress,
+          status: data?.new_stress_after_shift?.status || 'HIGH',
+          co2SavedKg: Number(data?.sustainability_metrics?.co2_saved_kg ?? 0),
+          bestSolarHourName: data?.best_solar_hour_name || 'target solar hour',
+          suggestedMaxShift,
+        })
+        setShowRiskDialog(true)
+      }
     } catch (err) {
       console.error('Error fetching what-if scenario:', err)
     } finally {
       setIsSimulating(false)
     }
+  }
+
+  const openPreRunDialog = () => {
+    if (isSimulating) return
+    setShowPreRunDialog(true)
+  }
+
+  const proceedSimulation = async () => {
+    setShowPreRunDialog(false)
+    await runSimulation()
   }
 
   if (!results) {
@@ -213,7 +248,7 @@ export default function WhatIf() {
           <div style={{ display: 'flex', alignItems: 'center', gap: THEME.spacing.md, marginTop: THEME.spacing.lg }}>
             <button
               type="button"
-              onClick={runSimulation}
+              onClick={openPreRunDialog}
               disabled={isSimulating}
               style={{
                 padding: `${THEME.spacing.sm} ${THEME.spacing.lg}`,
@@ -411,6 +446,56 @@ export default function WhatIf() {
 
         </>
       )}
+
+      {showPreRunDialog && (
+        <ScenarioDialog
+          title="Confirm Simulation"
+          iconColor={THEME.colors.warning}
+          onCancel={() => setShowPreRunDialog(false)}
+          onProceed={proceedSimulation}
+          proceedLabel="Proceed"
+          cancelLabel="Cancel"
+        >
+          <div style={{ lineHeight: 1.6, color: THEME.colors.text.secondary, fontSize: '13px' }}>
+            <div style={{ marginBottom: THEME.spacing.md }}>
+              You are about to simulate shifting <strong style={{ color: THEME.colors.text.primary }}>{pendingShiftPercentage.toFixed(0)}%</strong> load.
+            </div>
+            <div>
+              This is a <strong style={{ color: THEME.colors.text.primary }}>forecast-based scenario</strong>, not live grid control.
+            </div>
+          </div>
+        </ScenarioDialog>
+      )}
+
+      {showRiskDialog && riskDialogData && (
+        <ScenarioDialog
+          title="Simulation Risk Alert"
+          iconColor={THEME.colors.error}
+          onCancel={() => setShowRiskDialog(false)}
+          onProceed={() => setShowRiskDialog(false)}
+          proceedLabel="Acknowledge"
+          cancelLabel="Close"
+        >
+          <div style={{ lineHeight: 1.6, color: THEME.colors.text.secondary, fontSize: '13px' }}>
+            <div style={{ marginBottom: THEME.spacing.md }}>
+              <strong style={{ color: THEME.colors.text.primary }}>Scenario:</strong>{' '}
+              Shift {riskDialogData.shiftPercentage.toFixed(0)}% from peak to solar window ({riskDialogData.bestSolarHourName}).
+            </div>
+            <div style={{ marginBottom: THEME.spacing.md }}>
+              <strong style={{ color: THEME.colors.text.primary }}>Predicted outcome:</strong>{' '}
+              Stress {riskDialogData.projectedStress.toFixed(1)}% ({riskDialogData.status}), CO2 saved {riskDialogData.co2SavedKg.toFixed(2)} kg.
+            </div>
+            {riskDialogData.projectedTargetStress != null && (
+              <div style={{ marginBottom: THEME.spacing.md }}>
+                Projected target-hour stress: <strong style={{ color: THEME.colors.text.primary }}>{riskDialogData.projectedTargetStress.toFixed(1)}%</strong>.
+              </div>
+            )}
+            <div>
+              <strong style={{ color: THEME.colors.warning }}>Action hint:</strong> Reduce shift to &lt;= {riskDialogData.suggestedMaxShift}% or try a different target hour.
+            </div>
+          </div>
+        </ScenarioDialog>
+      )}
     </div>
   )
 }
@@ -447,4 +532,86 @@ const tableHeadStyle = {
 const tableCellStyle = {
   padding: '10px 8px',
   color: THEME.colors.text.secondary,
+}
+
+function ScenarioDialog({
+  title,
+  iconColor,
+  onCancel,
+  onProceed,
+  proceedLabel,
+  cancelLabel,
+  children,
+}) {
+  return (
+    <div
+      role="presentation"
+      onClick={onCancel}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1200,
+        background: 'rgba(10, 14, 21, 0.72)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: THEME.spacing.lg,
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%',
+          maxWidth: '520px',
+          background: THEME.colors.bg.surface,
+          border: `1px solid ${THEME.colors.border.primary}`,
+          borderRadius: '14px',
+          boxShadow: THEME.shadows.lg,
+          padding: THEME.spacing.xl,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: THEME.spacing.md, marginBottom: THEME.spacing.lg }}>
+          <AlertTriangle size={20} color={iconColor} />
+          <h3 style={{ margin: 0, fontSize: '18px', color: THEME.colors.text.primary }}>{title}</h3>
+        </div>
+        <div style={{ marginBottom: THEME.spacing.xl }}>
+          {children}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: THEME.spacing.md }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              borderRadius: '8px',
+              border: `1px solid ${THEME.colors.border.primary}`,
+              background: THEME.colors.bg.tertiary,
+              color: THEME.colors.text.secondary,
+              padding: `${THEME.spacing.sm} ${THEME.spacing.lg}`,
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onProceed}
+            style={{
+              borderRadius: '8px',
+              border: 'none',
+              background: THEME.colors.gradient.teal,
+              color: '#0a0e15',
+              padding: `${THEME.spacing.sm} ${THEME.spacing.lg}`,
+              cursor: 'pointer',
+              fontWeight: 700,
+            }}
+          >
+            {proceedLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }

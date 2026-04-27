@@ -12,7 +12,7 @@ export default defineConfig({
         rewrite: (path) => {
           // For /api/kpi-metrics, /api/commit-shift, /api/anomalies keep /api
           // For /api/predict-and-advise, /api/what-if-scenario, /api/forecast-24h strip /api
-          if (path.match(/\/(kpi-metrics|commit-shift|anomalies|commitment-history)/)) {
+          if (path.match(/\/(kpi-metrics|commit-shift|anomalies|commitment-history|model-comparison)/)) {
             return path; // Keep /api for new endpoints
           }
           return path.replace(/^\/api/, ''); // Strip /api for old endpoints
